@@ -45,6 +45,10 @@ O sistema impede que duas versões compatíveis usem os arquivos JSON ao mesmo t
 
 O Tailscale Serve deve apontar para `http://127.0.0.1:3011` e seu computador deve permanecer ligado. **Não habilite Tailscale Funnel.**
 
+## WhatsApp (teste)
+
+O agente pode responder pelo WhatsApp com a API oficial da Meta, usando o número de teste gratuito. O módulo `whatsapp.js` roda separado do painel, numa porta própria (3012), e só aceita mensagens assinadas pela Meta. Passo a passo em **WHATSAPP-TESTE.md**.
+
 ## Recuperação do administrador
 
 Caso você esqueça a senha, encerre todos os servidores e abra `RECUPERAR-ADMIN.bat`. Ele preserva o cadastro existente, faz backup do arquivo de usuários e gera uma senha provisória. Nunca envie essa senha pelo chat.
