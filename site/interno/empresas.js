@@ -10,7 +10,9 @@ function uiNode(tag,text,cls){const n=document.createElement(tag);if(text!==unde
 function inputField(label,key,value='',type='text',opts={}){
   const outer=uiNode('label'),control=uiNode('input');outer.append(uiNode('span',label));control.name=key;control.type=type;
   control.value=value??'';if(opts.required)control.required=true;
-  if(opts.maxlength)control.maxLength=opts.maxlength;outer.append(control);return outer;
+  if(opts.maxlength)control.maxLength=opts.maxlength;
+  if(opts.step)control.step=opts.step;if(opts.min!==undefined)control.min=opts.min;
+  outer.append(control);return outer;
 }
 function selectField(label,key,options,value){
   const outer=uiNode('label');outer.append(uiNode('span',label));const s=uiNode('select');s.name=key;
@@ -32,10 +34,10 @@ async function loadAtendeCompanies(){
   for(const company of window.atendeCompanies) renderCompany(company);
   if(!window.atendeCompanies.length)document.getElementById('companies-list').append(uiNode('p','Nenhuma empresa cadastrada. Comece pelo formulário acima.','muted'));
 }
-async function saveCompany(form,id,action){
+async function saveCompany(form,id,name,action){
   const btn=form.querySelector('button[type="submit"]')||form.querySelector('button');btn.disabled=true;
   try{
-    const pw=await verifyAdmin(action==='subscription'?`Alterar plano de ${id}`:`Editar cadastro de ${id}`);
+    const pw=await verifyAdmin(action==='subscription'?`Alterar plano de ${name}`:`Editar cadastro de ${name}`);
     if(!pw)return;
     const data=formValues(form);data.currentPassword=pw;
     if(action==='subscription'){
@@ -61,15 +63,15 @@ function renderCompany(c){
   details.append(selectField('Situação do cadastro','state',states,c.state));
   details.append(inputField('Observações internas','notes',c.notes,'text',{maxlength:500}));
   const save=uiNode('button','Salvar dados da empresa','primary');save.type='submit';details.append(save);
-  details.addEventListener('submit',e=>{e.preventDefault();saveCompany(details,c.id,'details');});box.append(details);
+  details.addEventListener('submit',e=>{e.preventDefault();saveCompany(details,c.id,c.name,'details');});box.append(details);
   const sub=c.subscription||{};const subform=uiNode('form',null,'biz-form-grid');
   subform.append(selectField('Plano','plan',Object.fromEntries(Object.entries(planDefinitions).map(([k,v])=>[k,v.label])),sub.plan||'essencial'));
   subform.append(selectField('Situação da assinatura','status',subStates,sub.status||'teste'));
-  subform.append(inputField('Implantação (R$)','setupReais',(Number(sub.setupCents||0)/100).toFixed(2),'number',{required:true}));
-  subform.append(inputField('Mensalidade (R$)','monthlyReais',(Number(sub.monthlyCents||0)/100).toFixed(2),'number',{required:true}));
+  subform.append(inputField('Implantação (R$)','setupReais',(Number(sub.setupCents||0)/100).toFixed(2),'number',{required:true,step:'0.01',min:0}));
+  subform.append(inputField('Mensalidade (R$)','monthlyReais',(Number(sub.monthlyCents||0)/100).toFixed(2),'number',{required:true,step:'0.01',min:0}));
   subform.append(inputField('Próximo vencimento (informativo)','nextDueDate',sub.nextDueDate||'','date'));
   const pay=uiNode('button','Salvar plano e vencimento','primary');pay.type='submit';subform.append(pay);
-  subform.addEventListener('submit',e=>{e.preventDefault();saveCompany(subform,c.id,'subscription');});
+  subform.addEventListener('submit',e=>{e.preventDefault();saveCompany(subform,c.id,c.name,'subscription');});
   box.append(uiNode('p',`Assinatura demonstrativa. Implantação: ${brl(sub.setupCents)}. Mensalidade: ${brl(sub.monthlyCents)}. Situação: ${subStates[sub.status]||'Em teste'}.`,'biz-note'),subform);
   box.append(uiNode('p','Valores e vencimentos registrados manualmente. Sem pagamento automático, cobrança, disparo de mensagens ou suspensão de usuários.','biz-note'));
   document.getElementById('companies-list').append(box);

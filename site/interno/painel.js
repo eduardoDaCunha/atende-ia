@@ -171,7 +171,7 @@ function initLogin(){
   });
 }
 function requestItem(item,click,selected=false){
-  const outer=el('div',null,'item'+(selected?' selected':''));
+  const outer=el('div',null,'item'+(selected?' selected':''));outer.dataset.id=item.id;
   const button=el('button');button.type='button';button.append(el('strong',item.subject),el('span','  '+(labelStatus[item.status]||item.status),'status'));
   outer.append(button,el('p',`${item.customerName?item.customerName+' • ':''}${date(item.updatedAt)}${item.priority?' • Prioridade '+item.priority:''}`));
   button.addEventListener('click',click);return outer;
@@ -187,14 +187,14 @@ function renderDetail(container,item){
 }
 async function initClient(){
   $('#new-request').addEventListener('submit',async e=>{
-    e.preventDefault();const btn=e.currentTarget.querySelector('button');btn.disabled=true;
-    try{const result=await api('/api/portal/requests','POST',fieldData(e.currentTarget));e.currentTarget.reset();feedback('#new-feedback','Solicitação registrada.',true);await loadClientList(result.item.id);}
+    e.preventDefault();const form=e.currentTarget,btn=form.querySelector('button');btn.disabled=true;
+    try{const result=await api('/api/portal/requests','POST',fieldData(form));form.reset();feedback('#new-feedback','Solicitação registrada.',true);await loadClientList(result.item.id);}
     catch(err){feedback('#new-feedback',err.message);}finally{btn.disabled=false;}
   });
   $('#reply-form').addEventListener('submit',async e=>{
     e.preventDefault();if(!currentRequest)return;
-    const btn=e.currentTarget.querySelector('button');btn.disabled=true;
-    try{const result=await api(`/api/portal/requests/${currentRequest}`+'/messages','POST',fieldData(e.currentTarget));e.currentTarget.reset();renderDetail($('#request-detail'),result.item);feedback('#reply-feedback','Mensagem enviada.',true);await loadClientList(currentRequest);}
+    const form=e.currentTarget,btn=form.querySelector('button');btn.disabled=true;
+    try{const result=await api(`/api/portal/requests/${currentRequest}`+'/messages','POST',fieldData(form));form.reset();renderDetail($('#request-detail'),result.item);await loadClientList(currentRequest);feedback('#reply-feedback','Mensagem enviada.',true);}
     catch(err){feedback('#reply-feedback',err.message);}finally{btn.disabled=false;}
   });
   await loadClientList();
@@ -208,7 +208,10 @@ async function loadClientList(selected=null){
 async function openClient(id){
   const {item}=await api(`/api/portal/requests/${id}`);currentRequest=id;
   renderDetail($('#request-detail'),item);show($('#reply-form'),true);feedback('#reply-feedback','');
-  [...$('#request-list').children].forEach(x=>x.classList.remove('selected'));
+  markSelected('#request-list',id);
+}
+function markSelected(listSelector,id){
+  [...$(listSelector).children].forEach(x=>x.classList.toggle('selected',x.dataset.id===id));
 }
 async function initStaff(){
   if(session.user.role==='admin')show($('.admin-only'),true);
@@ -221,10 +224,10 @@ async function initStaff(){
   $('#templates').addEventListener('click',e=>{const btn=e.target.closest('button[data-reply]');if(btn)$('#staff-reply textarea').value=btn.dataset.reply;});
   $('#staff-reply').addEventListener('submit',async e=>{
     e.preventDefault();if(!currentRequest)return;
-    const btn=e.currentTarget.querySelector('button');btn.disabled=true;
-    try{const data=fieldData(e.currentTarget);data.internal=Boolean(data.internal);
+    const form=e.currentTarget,btn=form.querySelector('button');btn.disabled=true;
+    try{const data=fieldData(form);data.internal=Boolean(data.internal);
       const result=await api(`/api/staff/requests/${currentRequest}/messages`,'POST',data);renderDetail($('#staff-detail'),result.item);
-      e.currentTarget.reset();feedback('#staff-feedback',data.internal?'Nota interna registrada.':'Resposta registrada.',true);await loadStaffList();}
+      form.reset();feedback('#staff-feedback',data.internal?'Nota interna registrada.':'Resposta registrada.',true);await loadStaffList();}
     catch(err){feedback('#staff-feedback',err.message);}finally{btn.disabled=false;}
   });
   $('#show-leads').addEventListener('click',async()=>{
@@ -255,6 +258,7 @@ async function openStaff(id){
   renderDetail($('#staff-detail'),item);show($('#staff-actions'),true);
   $('#status').value=item.status;$('#priority').value=item.priority;
   $('#assign').textContent=item.assignedTo?`Assumir (atual: ${item.assignedTo})`:'Assumir';feedback('#staff-feedback','');
+  markSelected('#staff-list',id);
 }
 async function modifyRequest(action,value){
   if(!currentRequest)return;
@@ -274,14 +278,15 @@ function verifyAdmin(action){
     const submit=e=>{e.preventDefault();finish(input.value||null);};
     const closed=()=>{if(finished)return;finished=true;detach();input.value='';resolve(null);};
     form.addEventListener('submit',submit);dialog.addEventListener('close',closed);
-    $('#admin-verify-cancel').onclick=()=>dialog.close();
+    // Cancelar resolve direto; o evento close cobre a tecla Esc.
+    $('#admin-verify-cancel').onclick=()=>finish(null);
     dialog.showModal();input.focus();
   });
 }
 async function initAdmin(){
   $('#create-user').addEventListener('submit',async e=>{
-    e.preventDefault();const btn=e.currentTarget.querySelector('button');btn.disabled=true;
-    try{const result=await api('/api/admin/users','POST',fieldData(e.currentTarget));showTemporary(result.temporaryPassword,result.user.username);e.currentTarget.reset();feedback('#users-feedback','Usuário criado. Entregue a senha provisória com segurança.',true);await loadUsers();}
+    e.preventDefault();const form=e.currentTarget,btn=form.querySelector('button');btn.disabled=true;
+    try{const result=await api('/api/admin/users','POST',fieldData(form));showTemporary(result.temporaryPassword,result.user.username);form.reset();feedback('#users-feedback','Usuário criado. Entregue a senha provisória com segurança.',true);await loadUsers();}
     catch(err){feedback('#users-feedback',err.message);}finally{btn.disabled=false;}
   });
   $('#config-form').addEventListener('submit',async e=>{
@@ -304,11 +309,11 @@ function showTemporary(password,username){
 }
 async function adminAction(user,action,payload){
   const currentPassword=await verifyAdmin(`${action==='reset'?'Redefinir senha de':action==='status'?'Alterar acesso de':'Alterar perfil de'} ${user.username}`);
-  if(!currentPassword)return;
+  if(!currentPassword)return false;
   try{const data=await api(`/api/admin/users/${user.id}/${action}`,'POST',{currentPassword,...payload});
     if(data.temporaryPassword){showTemporary(data.temporaryPassword,user.username);$('#generated-password').scrollIntoView({behavior:'smooth',block:'center'});}
-    feedback('#users-feedback','Alteração realizada.',true);await Promise.all([loadUsers(),loadSecurity(),loadAudit()]);}
-  catch(err){feedback('#users-feedback',err.message);}
+    feedback('#users-feedback','Alteração realizada.',true);await Promise.all([loadUsers(),loadSecurity(),loadAudit()]);return true;}
+  catch(err){feedback('#users-feedback',err.message);return false;}
 }
 async function loadUsers(){
   const {items}=await api('/api/admin/users');const container=$('#users-list');container.replaceChildren();
@@ -319,8 +324,10 @@ async function loadUsers(){
       const reset=el('button','Redefinir senha');reset.onclick=()=>adminAction(u,'reset',{});controls.append(reset);
       const block=el('button',u.active?'Bloquear':'Reativar');block.onclick=()=>adminAction(u,'status',{active:!u.active});controls.append(block);
       const role=el('select');['cliente','atendimento'].forEach(r=>{const op=el('option',r);op.value=r;op.selected=r===u.role;role.append(op);});
-      role.addEventListener('change',async()=>{const next=role.value;await adminAction(u,'role',{role:next});});controls.append(role);
+      // Cancelar ou falhar a confirmação devolve o select ao perfil salvo.
+      role.addEventListener('change',async()=>{const next=role.value;if(!await adminAction(u,'role',{role:next}))role.value=u.role;});controls.append(role);
       const companySelect=el('select');companySelect.setAttribute('aria-label',`Empresa de ${u.username}`);
+      if(!u.companyId){const none=el('option','Sem empresa vinculada');none.value='';none.disabled=true;none.selected=true;companySelect.append(none);}
       (window.atendeCompanies||[]).forEach(c=>{const o=el('option',c.name);o.value=c.id;o.selected=c.id===u.companyId;companySelect.append(o);});
       companySelect.addEventListener('change',async()=>{
         const password=await verifyAdmin(`Vincular ${u.username} à empresa selecionada`);
@@ -380,4 +387,11 @@ async function loadHealth(){
   const info=await api('/api/admin/health'),container=$('#health');container.replaceChildren();
   Object.entries(info).forEach(([key,value])=>{const row=el('div',null,'item');row.append(el('strong',key),el('p',String(value)));container.append(row);});
 }
-init().catch(err=>{const notice=$('#notice')||$('#staff-detail')||$('#request-detail')||$('#users-feedback');if(notice)notice.textContent='Erro ao abrir o painel: '+err.message;});
+init().catch(err=>{
+  // Antes da autorização o painel fica invisível; mostra só o aviso, sem revelar o conteúdo.
+  if(page!=='acesso'&&!document.body.classList.contains('authorized')){
+    document.body.replaceChildren(el('main',`Erro ao abrir o painel (${err.message}). Atualize a página ou abra /acesso novamente.`,'session-warning'));
+    document.body.classList.add('authorized');return;
+  }
+  const notice=$('#notice')||$('#staff-detail')||$('#request-detail')||$('#users-feedback');if(notice)notice.textContent='Erro ao abrir o painel: '+err.message;
+});
