@@ -51,7 +51,7 @@ O agente responde pelo WhatsApp com a API oficial da Meta e a equipe acompanha a
 
 ## Diagnóstico
 
-`node diagnostico.js` mostra o estado do servidor, da IA, do WhatsApp e dos alertas, sem expor segredos e sem chamadas externas (use `--testar-conexoes` para conferir Gemini e Meta com leituras gratuitas). Administradores também têm `/api/admin/diagnostico`. Detalhes em **DIAGNOSTICO.md**. O diagnóstico é a primeira ferramenta de integração; o núcleo comum (permissões, limites, auditoria e confirmação de ações) está em **FERRAMENTAS.md**.
+`node diagnostico.js` mostra o estado do servidor, da IA, do WhatsApp e dos alertas, sem expor segredos e sem chamadas externas (use `--testar-conexoes` para conferir Gemini e Meta com leituras gratuitas). Administradores também têm `/api/admin/diagnostico`. Detalhes em **DIAGNOSTICO.md**. O diagnóstico é a primeira ferramenta de integração; o núcleo comum (permissões, limites, auditoria e confirmação de ações) está em **FERRAMENTAS.md**, e o servidor MCP local (`node mcp.js`, para Claude Code e outros clientes) em **MCP.md**.
 
 ## Recuperação do administrador
 

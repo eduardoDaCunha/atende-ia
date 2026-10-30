@@ -1,6 +1,6 @@
 # Ferramentas de integração (Task 2: núcleo)
 
-Toda ferramenta do Atende.IA — usada pelo painel, pela linha de comando e, na Task 3, por um conector MCP — passa pelo mesmo núcleo (`ferramentas.js`). Assim, as regras de segurança ficam num lugar só, e não em cada ferramenta.
+Toda ferramenta do Atende.IA — usada pelo painel, pela linha de comando ou pelo servidor MCP (`mcp.js`) — passa pelo mesmo núcleo (`ferramentas.js`). Assim, as regras de segurança ficam num lugar só, e não em cada ferramenta.
 
 ## Arquivos
 
@@ -55,6 +55,6 @@ Toda ferramenta do Atende.IA — usada pelo painel, pela linha de comando e, na 
 
 ## Pendente (próximas tasks)
 
-- **Task 3**: servidor MCP local (stdio) usando `listar`/`executar` deste núcleo.
+- ~~Task 3~~: feita, ver `MCP.md` (`mcp.js`).
 - **Tasks 4 a 6**: ferramentas de leitura do negócio, ações e integrações de saída, todas registradas aqui.
 - **Tela no painel admin** para listar e executar ferramentas: espera o trabalho em andamento no `painel.js`.

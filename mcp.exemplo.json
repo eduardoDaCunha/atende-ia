@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "atende-ia": {
+      "command": "node",
+      "args": ["mcp.js"],
+      "env": {
+        "ATENDE_MCP_ACOES": "0"
+      }
+    }
+  }
+}
