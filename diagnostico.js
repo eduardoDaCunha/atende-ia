@@ -15,17 +15,15 @@
 'use strict';
 const fs = require('node:fs');
 const path = require('node:path');
-const os = require('node:os');
 const { ROOT, DATA } = require('./store');
 const whatsapp = require('./whatsapp');
+const { semSegredos } = require('./sanitizar');
 
 const VERSAO = '0.3.8.3';
 const ESQUEMA = 1;
 const LOCAL = '127.0.0.1';
 const GEMINI_BASE = 'https://generativelanguage.googleapis.com';
 const TEMPO_LIMITE = 5000;
-const SEGREDOS = ['GEMINI_API_KEY','WHATSAPP_TOKEN','WHATSAPP_APP_SECRET','WHATSAPP_VERIFY_TOKEN','WHATSAPP_PHONE_NUMBER_ID',
-  'WHATSAPP_EMPRESA_ID','SECURITY_WHATSAPP_TO','TAILSCALE_HOST','ATENDE_DATA_DIR','LOCALAPPDATA','USERPROFILE','HOME'];
 
 /** Um item do relatório. estado: ok | aviso | falha | info. conexao: testada_ok | testada_falha | nao_testada | nao_aplicavel. */
 function item(id, area, titulo, estado, { configurado=null, conexao='nao_aplicavel', detalhe='' } = {}) {
@@ -187,17 +185,6 @@ const LIMITACOES = [
   item('limite.monitoramento','limitacoes','Monitoramento','info',{detalhe:'Não há monitoramento externo: se o processo cair, nada avisa.'}),
   item('limite.diagnostico','limitacoes','Este diagnóstico','info',{detalhe:'Lê só as variáveis do processo que o executa. Rodado num terminal sem o config-local.bat, mostra integrações como desativadas; o relatório do painel admin reflete o servidor em execução.'}),
 ];
-
-/** Troca qualquer valor sensível do ambiente que tenha escapado por "[oculto]". */
-function semSegredos(relatorio, env) {
-  const valores = new Set();
-  for (const nome of SEGREDOS) { const v = texto(env[nome]); if (v.length >= 4) valores.add(v); }
-  for (const n of texto(env.WHATSAPP_ALLOWED_NUMBERS).split(',')) { const d = n.replace(/\D/g, ''); if (d.length >= 8) valores.add(d); }
-  for (const p of [DATA, ROOT, os.homedir()]) if (p && p.length >= 4) valores.add(p);
-  let json = JSON.stringify(relatorio);
-  for (const v of [...valores].sort((a,b) => b.length - a.length)) json = json.split(JSON.stringify(v).slice(1,-1)).join('[oculto]');
-  return JSON.parse(json);
-}
 
 /**
  * Gera o relatório. opcoes: env, dentroDoServidor, testarConexoes, fetch (injetável nos testes), geminiBase (só testes).

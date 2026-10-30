@@ -130,7 +130,7 @@ function fetchFalso(regras){
 async function rotaDoServidor(){
   const base=await fs.mkdtemp(path.join(os.tmpdir(),'atende-diag-srv-'));
   const data=path.join(base,'data');await fs.mkdir(data);
-  for(const name of ['server.js','auth.js','store.js','resposta.js','whatsapp.js','conversas.js','diagnostico.js','empresa.json'])await fs.copyFile(path.join(root,name),path.join(base,name));
+  for(const name of ['server.js','auth.js','store.js','resposta.js','whatsapp.js','conversas.js','diagnostico.js','sanitizar.js','ferramentas.js','catalogo.js','empresa.json'])await fs.copyFile(path.join(root,name),path.join(base,name));
   await fs.cp(path.join(root,'site'),path.join(base,'site'),{recursive:true});
   const {hashPassword}=require(path.join(base,'auth.js'));
   const pw='Senha-Ficticia-2026!',agora=new Date().toISOString(),empresa=crypto.randomUUID();
@@ -182,7 +182,7 @@ async function rotaDoServidor(){
     for(let i=0;i<4;i++)await call('/api/admin/diagnostico','POST',{testarConexoes:true},admin);
     assert.equal((await call('/api/admin/diagnostico','POST',{testarConexoes:true},admin)).status,429,'Limite de testes por minuto');
     const auditoria=(await call('/api/admin/audit','GET',null,admin)).data.items.map(x=>x.action);
-    assert.ok(auditoria.includes('diagnostico_conexoes'),'Teste de conexões fica na auditoria');
+    assert.ok(auditoria.includes('ferramenta_diagnostico_testar_conexoes'),'Teste de conexões fica na auditoria');
     // O servidor sempre mostrou a pasta de dados ao iniciar, no terminal local; o que não pode aparecer são segredos.
     for(const v of proibidos(env).filter(v=>v!==os.homedir()))assert.equal(saida.includes(v),false,'Terminal sem segredos');
   }finally{

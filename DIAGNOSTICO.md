@@ -26,7 +26,7 @@ Cada item traz `estado` (`ok`, `aviso`, `falha`, `info`), **`configurado`** (`tr
 ## Como usar
 
 - Terminal: `node diagnostico.js` (texto), `node diagnostico.js --json` e `node diagnostico.js --testar-conexoes`. Código de saída: 0 sem falhas, 1 com falha, 2 se o diagnóstico quebrar.
-- Painel/API (só administrador): `GET /api/admin/diagnostico` gera o relatório local a partir do **servidor em execução**, que tem as variáveis do `config-local.bat` carregadas. `POST /api/admin/diagnostico` com `{"testarConexoes":true}` também testa as conexões; exige CSRF, fica na auditoria (`diagnostico_conexoes`) e aceita no máximo 5 por minuto.
+- Painel/API (só administrador): `GET /api/admin/diagnostico` gera o relatório local a partir do **servidor em execução**, que tem as variáveis do `config-local.bat` carregadas. `POST /api/admin/diagnostico` com `{"testarConexoes":true}` também testa as conexões; exige CSRF, fica na auditoria (`ferramenta_diagnostico_testar_conexoes`) e aceita no máximo 5 por minuto. Desde a Task 2, essas rotas passam pelo núcleo de ferramentas (ver `FERRAMENTAS.md`): o mesmo relatório também sai por `/api/ferramentas/diagnostico` e `node catalogo.js executar diagnostico`.
 - O terminal só enxerga as variáveis do próprio processo. Rodado num PowerShell comum, mostra a IA e o WhatsApp como desativados mesmo que o servidor esteja usando os dois. Para a visão do servidor, use a rota admin.
 
 ## Como testar
