@@ -6,7 +6,7 @@ Protótipo local de atendimento com IA: site público de demonstração (`site/p
 - Iniciar: `INICIAR-ATENDE.bat` (ou `node server.js`). Porta 3011, só em `127.0.0.1`.
 - Primeiro admin: `CRIAR-ADMIN.bat`. Recuperar admin: `RECUPERAR-ADMIN.bat`. Importar dados antigos: `PREPARAR-DADOS.bat`.
 - WhatsApp: sobe junto com o `server.js` quando `WHATSAPP_*` está no `config-local.bat`, na porta 3012. Passo a passo em `WHATSAPP-TESTE.md`.
-- Testes: `node tests/smoke.js`, `node tests/tailscale.js`, `node tests/dados-permanentes.js`, `node tests/atualizacoes-seguras.js`, `node tests/whatsapp.js`, `node tests/whatsapp-painel.js`. Rode todos depois de mudar `server.js`, `auth.js`, `store.js`, `resposta.js`, `whatsapp.js` ou `conversas.js`. Testes que sobem o servidor copiam uma lista fixa de arquivos: ao criar um módulo novo usado pelo `server.js`, inclua-o nessas listas. Um `EBUSY` na limpeza da pasta temporária no Windows é conhecido e não indica falha; vale a linha `OK:`.
+- Testes: `node tests/smoke.js`, `node tests/tailscale.js`, `node tests/dados-permanentes.js`, `node tests/atualizacoes-seguras.js`, `node tests/whatsapp.js`, `node tests/whatsapp-painel.js`, `node tests/diagnostico.js`. Rode todos depois de mudar `server.js`, `auth.js`, `store.js`, `resposta.js`, `whatsapp.js`, `conversas.js` ou `diagnostico.js`. Testes que sobem o servidor copiam uma lista fixa de arquivos: ao criar um módulo novo usado pelo `server.js`, inclua-o nessas listas. Um `EBUSY` na limpeza da pasta temporária no Windows é conhecido e não indica falha; vale a linha `OK:`.
 
 ## Estrutura
 - `server.js`: rotas HTTP e API. `auth.js`: hash de senha e sessões. `store.js`: leitura e gravação JSON com trava.
@@ -14,6 +14,7 @@ Protótipo local de atendimento com IA: site público de demonstração (`site/p
 - `whatsapp.js`: webhook da WhatsApp Cloud API (servidor HTTP próprio, porta 3012, só `/webhook/whatsapp`); não grava arquivos.
 - `conversas.js`: conversas do WhatsApp em `conversas-whatsapp.json`, modo robô/humano e janela de 24 h. Usa o `store.js`, cuja fila de gravação vale só dentro de um processo: por isso o webhook roda dentro do `server.js`, nunca em processo separado.
 - `store.js` repete a troca do arquivo por alguns milissegundos em EPERM/EBUSY: no Windows, ler e gravar ao mesmo tempo falha por um instante.
+- `diagnostico.js`: diagnóstico somente leitura (CLI e `/api/admin/diagnostico`); ver `DIAGNOSTICO.md`. Nunca leia arquivos de dados nem o `config-local.bat` nele, nunca exiba valores de variáveis e nunca faça chamadas externas sem `testarConexoes`; jamais envie mensagens.
 - Dados reais ficam fora do projeto, em `%LOCALAPPDATA%\AtendeIA\data` (ou `ATENDE_DATA_DIR`).
 - `site/interno/painel.js` serve as quatro páginas internas pelo `data-page` do `<body>`; `empresas.js` só existe no admin e usa as funções globais de `painel.js`.
 

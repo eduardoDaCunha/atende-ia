@@ -13,6 +13,7 @@ const auth = require('./auth');
 const { AI_ENABLED, MODEL, bad, str, company, normalize, demoAnswer, aiAnswer } = require('./resposta');
 const whatsapp = require('./whatsapp');
 const conversas = require('./conversas');
+const diagnostico = require('./diagnostico');
 // null quando o WhatsApp não foi configurado; configuração pela metade impede a partida.
 const WPP = whatsapp.loadConfig(process.env);
 
@@ -296,6 +297,8 @@ const server=http.createServer(async (req,res)=>{
         return json(res,200,{blocked,events:events.slice(-100).reverse(),summary:{locked:blocked.length,failed:last24.filter(e=>e.result==='falha').length,blockedAttempts:last24.filter(e=>e.result==='bloqueado').length,successful:last24.filter(e=>e.result==='sucesso').length}});
       }
       if (pathname==='/api/admin/config') { allow(s,['admin']);return json(res,200,{config:company()}); }
+      // Diagnóstico somente leitura; sem conexões externas (essas exigem POST abaixo).
+      if (pathname==='/api/admin/diagnostico') { allow(s,['admin']);return json(res,200,await diagnostico.coletarDiagnostico({dentroDoServidor:true})); }
       if (pathname==='/api/admin/health') {
         allow(s,['admin']);const users=await read(auth.USERFILE),reqs=await read('solicitacoes.json');
         return json(res,200,{mode:'LOCAL — não publicar',users:users.length,requests:reqs.length,sessions:'somente na memória',database:'Arquivos JSON locais; backup manual necessário',ai:AI_ENABLED});
@@ -425,6 +428,12 @@ const server=http.createServer(async (req,res)=>{
     }
     // Administração exclusiva, independente de exibir / esconder botões no frontend.
     const admin=allow(s,['admin']);
+    if(pathname==='/api/admin/diagnostico' && req.method==='POST') {
+      // Só leituras gratuitas na Google e na Meta, nunca envio de mensagem; limitado para não virar abuso.
+      if(!throttle(`${admin.id}:diagnostico`,5)) throw bad(429,'Aguarde um minuto para testar as conexões de novo.');
+      await audit('diagnostico_conexoes',admin.username);
+      return json(res,200,await diagnostico.coletarDiagnostico({dentroDoServidor:true,testarConexoes:input.testarConexoes===true}));
+    }
     if(pathname==='/api/admin/security/unlock' && req.method==='POST') {
       if(typeof input.currentPassword!=='string'||!auth.verifyPassword(input.currentPassword,admin)) throw bad(401,'Senha administrativa incorreta.');
       const username=str(input.username,30).toLowerCase();
