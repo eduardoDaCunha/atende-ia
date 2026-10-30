@@ -35,9 +35,10 @@ function paraMcp(f) {
  * Cria o tratador de mensagens. opcoes: registro (catálogo), permitirAcoes (bool), log (stderr).
  * Retorna tratar(mensagem) => resposta | null (notificações não têm resposta).
  */
-function criarServidorMcp({ registro, permitirAcoes=false, log=m => process.stderr.write(m+'\n') }) {
+function criarServidorMcp({ registro, permitirAcoes=false, permitirDadosPessoais=false, log=m => process.stderr.write(m+'\n') }) {
   const contexto = { origem:'local' };
-  const visiveis = () => registro.listar(contexto).filter(f => permitirAcoes || f.nivel !== 'acao');
+  // O cliente MCP repassa as respostas a um modelo de IA: conteúdo de clientes só com liberação explícita.
+  const visiveis = () => registro.listar(contexto).filter(f => (permitirAcoes || f.nivel !== 'acao') && (permitirDadosPessoais || !f.dadosPessoais));
   let iniciado = false;
 
   const resposta = (id, result) => ({ jsonrpc:'2.0', id, result });
@@ -118,9 +119,10 @@ if (require.main === module) {
   console.log = console.info = (...a) => process.stderr.write(a.join(' ') + '\n');
   const { criarCatalogo } = require('./catalogo');
   const permitirAcoes = process.env.ATENDE_MCP_ACOES === '1';
-  const tratar = criarServidorMcp({ registro:criarCatalogo(), permitirAcoes });
+  const permitirDadosPessoais = process.env.ATENDE_MCP_DADOS_PESSOAIS === '1';
+  const tratar = criarServidorMcp({ registro:criarCatalogo(), permitirAcoes, permitirDadosPessoais });
   conectar(tratar, process.stdin, process.stdout);
-  process.stderr.write(`Atende.IA MCP ${VERSAO} pronto (stdio${permitirAcoes ? ', ações liberadas com confirmação' : ', somente consultas'}).\n`);
+  process.stderr.write(`Atende.IA MCP ${VERSAO} pronto (stdio${permitirAcoes ? ', ações liberadas com confirmação' : ', somente consultas'}${permitirDadosPessoais ? ', COM conteúdo de clientes' : ', sem conteúdo de clientes'}).\n`);
 }
 
 module.exports = { criarServidorMcp, conectar, paraMcp, VERSOES };

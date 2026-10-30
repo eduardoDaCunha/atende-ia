@@ -118,12 +118,12 @@ const rejeita=async(promessa,status,codigo)=>{
   // ---------- catálogo real e linha de comando ----------
   const {criarCatalogo}=require(path.join(root,'catalogo.js'));
   const cat=criarCatalogo({env:{},fetch:async()=>{throw new Error('sem rede');}});
-  assert.deepEqual(cat.nomes(),['diagnostico','diagnostico_testar_conexoes']);
-  assert.equal(cat.listar(atend).length,0,'Diagnóstico só para administradores');
+  assert.deepEqual(cat.nomes(),['diagnostico','diagnostico_testar_conexoes','estatisticas','listar_solicitacoes','ler_solicitacao','listar_conversas_whatsapp','ler_conversa_whatsapp','listar_empresas']);
+  assert.deepEqual(cat.listar(atend).map(f=>f.nome),['estatisticas','listar_solicitacoes','listar_conversas_whatsapp'],'Atendimento: só listas e estatísticas');
   const diag=await cat.executar('diagnostico',{},admin);
   assert.equal(diag.resultado.esquema,1);
   const cli=spawnSync(process.execPath,[path.join(root,'catalogo.js'),'listar'],{encoding:'utf8',timeout:20000});
-  assert.equal(cli.status,0);assert.equal(JSON.parse(cli.stdout).length,2);
+  assert.equal(cli.status,0);assert.equal(JSON.parse(cli.stdout).length,8);
   const cliErro=spawnSync(process.execPath,[path.join(root,'catalogo.js'),'executar','diagnostico','{"x":1}'],{encoding:'utf8',timeout:20000});
   assert.equal(cliErro.status,1);assert.match(cliErro.stderr,/entrada_invalida/);
 
@@ -135,7 +135,7 @@ const rejeita=async(promessa,status,codigo)=>{
 async function rotas(){
   const base=await fs.mkdtemp(path.join(os.tmpdir(),'atende-ferr-'));
   const data=path.join(base,'data');await fs.mkdir(data);
-  for(const name of ['server.js','auth.js','store.js','resposta.js','whatsapp.js','conversas.js','diagnostico.js','sanitizar.js','ferramentas.js','catalogo.js','empresa.json'])await fs.copyFile(path.join(root,name),path.join(base,name));
+  for(const name of ['server.js','auth.js','store.js','resposta.js','whatsapp.js','conversas.js','diagnostico.js','sanitizar.js','ferramentas.js','catalogo.js','negocio.js','empresa.json'])await fs.copyFile(path.join(root,name),path.join(base,name));
   await fs.cp(path.join(root,'site'),path.join(base,'site'),{recursive:true});
   const {hashPassword}=require(path.join(base,'auth.js'));
   const pw='Senha-Ficticia-2026!',agora=new Date().toISOString(),empresa=crypto.randomUUID();
@@ -156,8 +156,8 @@ async function rotas(){
     const login=async n=>{const r=await call('/api/auth/login','POST',{username:n,password:pw});assert.equal(r.status,200);return {cookie:r.cookie,csrf:r.data.csrf};};
     const admin=await login('admin.teste'),ana=await login('ana.teste');
     assert.equal((await call('/api/ferramentas')).status,401);
-    assert.deepEqual((await call('/api/ferramentas','GET',null,ana)).data.items,[],'Atendimento não vê ferramentas de admin');
-    assert.deepEqual((await call('/api/ferramentas','GET',null,admin)).data.items.map(f=>f.nome),['diagnostico','diagnostico_testar_conexoes']);
+    assert.deepEqual((await call('/api/ferramentas','GET',null,ana)).data.items.map(f=>f.nome),['estatisticas','listar_solicitacoes','listar_conversas_whatsapp'],'Atendimento não vê ferramentas de admin');
+    assert.deepEqual((await call('/api/ferramentas','GET',null,admin)).data.items.map(f=>f.nome),['diagnostico','diagnostico_testar_conexoes','estatisticas','listar_solicitacoes','ler_solicitacao','listar_conversas_whatsapp','ler_conversa_whatsapp','listar_empresas']);
     assert.equal((await call('/api/ferramentas/diagnostico','POST',{})).status,401,'Sem login');
     assert.equal((await call('/api/ferramentas/diagnostico','POST',{},admin,false)).status,403,'Sem CSRF');
     assert.equal((await call('/api/ferramentas/diagnostico','POST',{},ana)).status,403,'Atendimento');

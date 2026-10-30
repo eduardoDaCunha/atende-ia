@@ -141,7 +141,7 @@ async function processoReal(){
   assert.equal(codigo,0,err);
   const linhas=out.trim().split('\n').map(l=>JSON.parse(l));
   assert.deepEqual(linhas.map(m=>m.id),[1,2,3]);
-  assert.deepEqual(linhas[1].result.tools.map(t=>t.name),['diagnostico','diagnostico_testar_conexoes']);
+  assert.deepEqual(linhas[1].result.tools.map(t=>t.name),['diagnostico','diagnostico_testar_conexoes','estatisticas','listar_solicitacoes','listar_conversas_whatsapp','listar_empresas'],'Sem ferramentas de dados pessoais por padrão');
   const diag=linhas[2].result.structuredContent.resultado;
   assert.equal(diag.esquema,1);
   assert.equal(diag.itens.find(i=>i.id==='whatsapp.config').configurado,true,'Lê o ambiente do próprio processo');

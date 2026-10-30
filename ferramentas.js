@@ -63,6 +63,7 @@ function validarArgs(esquema, args) {
  *  nome (snake_case), titulo, descricao, nivel (leitura|sensivel|acao), perfis (padrão ['admin']),
  *  entrada (JSON Schema simples), limitePorMinuto (padrão do nível),
  *  executar(args, contexto) e, para "acao", previa(args, contexto).
+ *  dadosPessoais: true quando a saída traz conteúdo de clientes (o MCP esconde essas por padrão).
  */
 function definirFerramenta(def) {
   if (!/^[a-z][a-z0-9_]{2,63}$/.test(def.nome || '')) throw new Error('Nome de ferramenta inválido: '+def.nome);
@@ -154,7 +155,7 @@ function criarRegistro(opcoes = {}) {
       const perfil = perfilDe(contexto);
       return [...ferramentas.values()].filter(f => perfil && f.perfis.includes(perfil)).map(f => ({
         nome:f.nome, titulo:f.titulo, descricao:f.descricao, nivel:f.nivel, nivelDescricao:NIVEIS[f.nivel].descricao,
-        exigeConfirmacao:f.nivel === 'acao', limitePorMinuto:f.limitePorMinuto, entrada:f.entrada }));
+        exigeConfirmacao:f.nivel === 'acao', dadosPessoais:Boolean(f.dadosPessoais), limitePorMinuto:f.limitePorMinuto, entrada:f.entrada }));
     },
     /**
      * Executa. Para "acao": sem `confirmacao` devolve { requerConfirmacao, previa, confirmacao };

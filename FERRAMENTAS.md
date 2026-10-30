@@ -10,6 +10,7 @@ Toda ferramenta do Atende.IA — usada pelo painel, pela linha de comando ou pel
 | `catalogo.js` | Onde as ferramentas são registradas; também é a linha de comando local |
 | `sanitizar.js` | `semSegredos`: última barreira contra tokens, telefones, IDs e caminhos na saída |
 | `diagnostico.js` | Primeira ferramenta (Task 1) |
+| `negocio.js` | Ferramentas de leitura do negócio (Task 4) |
 
 ## O que o núcleo garante
 
@@ -27,6 +28,20 @@ Toda ferramenta do Atende.IA — usada pelo painel, pela linha de comando ou pel
 |---|---|---|---|
 | `diagnostico` | leitura | admin | Relatório do sistema (ver `DIAGNOSTICO.md`), só com consultas a 127.0.0.1 |
 | `diagnostico_testar_conexoes` | sensivel | admin | O mesmo, mais duas leituras gratuitas (Gemini e Meta). Nunca envia mensagens |
+| `estatisticas` | leitura | admin, atendimento | Totais de solicitações por status e de conversas (robô, humano, pedidos de atendente, janela aberta). Só números |
+| `listar_solicitacoes` | leitura | admin, atendimento | Solicitações paginadas, com filtro de status. Cliente por iniciais; sem descrição nem mensagens |
+| `ler_solicitacao` | sensivel • **dados pessoais** | admin | Descrição e mensagens, com notas internas marcadas |
+| `listar_conversas_whatsapp` | leitura | admin, atendimento | Conversas paginadas, com filtros de modo e pedido de atendente. Telefone `***0001`, nome por iniciais, sem texto |
+| `ler_conversa_whatsapp` | sensivel • **dados pessoais** | admin | Últimas mensagens da conversa; telefone continua mascarado |
+| `listar_empresas` | leitura | admin | Empresas com cidade/UF, situação e plano; sem contato nem observações |
+
+### Regras das ferramentas de negócio (Task 4)
+
+- **Empresa**: o administrador vê tudo; o atendimento vê só a própria empresa (sem empresa vinculada: 403). Clientes do painel não usam essas ferramentas.
+- **Listas não trazem conteúdo**: cliente como iniciais ("M. S."), telefone como `***0001`, sem descrição, mensagens, contato ou observações. O **assunto** da solicitação aparece (até 100 caracteres); se o cliente escrever dados pessoais no assunto, eles aparecem.
+- **Conteúdo** (`ler_*`): só administrador, nível `sensivel`, limite de 20 por minuto, marcadas com `dadosPessoais`; o uso fica na auditoria (só o nome do campo, nunca o ID ou o texto).
+- **Paginação**: `pagina` (desde 1) e `porPagina` (1 a 50, padrão 20); a resposta traz `total` e `temMais`. Mais recentes primeiro.
+- **MCP**: ferramentas com `dadosPessoais` ficam escondidas sem `ATENDE_MCP_DADOS_PESSOAIS=1`, porque o cliente MCP repassa as respostas a um modelo de IA.
 
 ## Como usar
 
@@ -56,5 +71,6 @@ Toda ferramenta do Atende.IA — usada pelo painel, pela linha de comando ou pel
 ## Pendente (próximas tasks)
 
 - ~~Task 3~~: feita, ver `MCP.md` (`mcp.js`).
-- **Tasks 4 a 6**: ferramentas de leitura do negócio, ações e integrações de saída, todas registradas aqui.
+- ~~Task 4~~: feita (`negocio.js`).
+- **Tasks 5 e 6**: ações com confirmação e integrações de saída, registradas aqui.
 - **Tela no painel admin** para listar e executar ferramentas: espera o trabalho em andamento no `painel.js`.

@@ -5,8 +5,9 @@
 'use strict';
 const { criarRegistro } = require('./ferramentas');
 const { coletarDiagnostico } = require('./diagnostico');
+const { registrarFerramentasDeNegocio } = require('./negocio');
 
-/** opcoes: dentroDoServidor (true no server.js), agora/env/fetch (injetáveis nos testes). */
+/** opcoes: dentroDoServidor (true no server.js), agora/env/fetch/ler (injetáveis nos testes). */
 function criarCatalogo(opcoes = {}) {
   const registro = criarRegistro({ agora:opcoes.agora, env:opcoes.env });
   const base = { env:opcoes.env, fetch:opcoes.fetch, dentroDoServidor:Boolean(opcoes.dentroDoServidor) };
@@ -25,6 +26,7 @@ function criarCatalogo(opcoes = {}) {
     nivel:'sensivel', perfis:['admin'], limitePorMinuto:5,
     executar:() => coletarDiagnostico({ ...base, testarConexoes:true }),
   });
+  registrarFerramentasDeNegocio(registro, { ler:opcoes.ler });
   return registro;
 }
 

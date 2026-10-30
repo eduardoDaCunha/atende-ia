@@ -9,11 +9,12 @@ As ferramentas do catálogo (`catalogo.js`), pelas mesmas regras do núcleo (`FE
 | Política | Padrão |
 |---|---|
 | Ferramentas `leitura` e `sensivel` | Expostas |
+| Ferramentas com `dadosPessoais` (`ler_solicitacao`, `ler_conversa_whatsapp`) | **Escondidas.** Só aparecem com `ATENDE_MCP_DADOS_PESSOAIS=1`: o cliente repassa as respostas a um modelo de IA |
 | Ferramentas `acao` | **Escondidas.** Só aparecem com `ATENDE_MCP_ACOES=1` e, mesmo assim, exigem prévia e código de confirmação |
 | Detalhes de erro interno | Nunca vão ao cliente (só "Erro interno na ferramenta."); o detalhe sai no stderr |
 | Saída padrão | Exclusiva do protocolo: qualquer `console.log` é desviado para o stderr |
 
-Hoje as ferramentas são `diagnostico` e `diagnostico_testar_conexoes`.
+Com a política padrão, o MCP expõe `diagnostico`, `diagnostico_testar_conexoes`, `estatisticas`, `listar_solicitacoes`, `listar_conversas_whatsapp` e `listar_empresas`. O MCP age como administrador local e lê a pasta de dados do computador (só leitura); veja `ATENDE_DATA_DIR`.
 
 Cada ferramenta vai ao cliente com `inputSchema` e anotações (`readOnlyHint`, `destructiveHint`, `openWorldHint`). Ações recebem um campo opcional `confirmacao`: sem ele, a chamada só devolve a prévia.
 
