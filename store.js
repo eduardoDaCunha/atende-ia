@@ -15,8 +15,20 @@ function filename(name) {
   if (!/^[a-z0-9-]+\.json$/i.test(name)) throw new Error('Arquivo inválido');
   return path.join(DATA, name);
 }
+// No Windows, trocar um arquivo que outra operação está lendo falha por um instante
+// (EPERM/EACCES/EBUSY). Sem nova tentativa, a gravação se perdia.
+const TRANSIENT = new Set(['EPERM', 'EACCES', 'EBUSY']);
+async function retrying(operation) {
+  for (let attempt = 0; ; attempt++) {
+    try { return await operation(); }
+    catch (e) {
+      if (!TRANSIENT.has(e.code) || attempt >= 12) throw e;
+      await new Promise(resolve => setTimeout(resolve, 15 * (attempt + 1)));
+    }
+  }
+}
 async function read(name, fallback = []) {
-  try { return JSON.parse(await fs.readFile(filename(name), 'utf8')); }
+  try { return JSON.parse(await retrying(() => fs.readFile(filename(name), 'utf8'))); }
   catch (e) { if (e.code === 'ENOENT') return structuredClone(fallback); throw e; }
 }
 async function write(name, value) {
@@ -25,7 +37,7 @@ async function write(name, value) {
   const temp = target + '.' + crypto.randomUUID() + '.tmp';
   try {
     await fs.writeFile(temp, JSON.stringify(value, null, 2), { mode: 0o600, flag: 'wx' });
-    await fs.rename(temp, target);
+    await retrying(() => fs.rename(temp, target));
   } finally { await fs.rm(temp, { force: true }).catch(() => {}); }
 }
 async function update(name, mutate, fallback = []) {

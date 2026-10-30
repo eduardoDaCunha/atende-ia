@@ -12,7 +12,7 @@ const wait=ms=>new Promise(r=>setTimeout(r,ms));
  const home=await fs.mkdtemp(path.join(os.tmpdir(),'atende-update-safe-'));
  const base1=path.join(home,'versaoA'),base2=path.join(home,'versaoB'),data=path.join(home,'persistente');
  let first=null,second=null;
- const files=['server.js','store.js','auth.js','resposta.js','empresa.json'];
+ const files=['server.js','store.js','auth.js','resposta.js','whatsapp.js','conversas.js','empresa.json'];
  async function copy(dest){await fs.mkdir(dest);for(const name of files)await fs.copyFile(path.join(root,name),path.join(dest,name));await fs.cp(path.join(root,'site'),path.join(dest,'site'),{recursive:true});}
  const launch=(base,port)=>{
   const proc=spawn(process.execPath,['server.js'],{cwd:base,env:{...process.env,ATENDE_DATA_DIR:data,PORT:String(port),TAILSCALE_HOST:'',GEMINI_API_KEY:''},stdio:['ignore','pipe','pipe']});

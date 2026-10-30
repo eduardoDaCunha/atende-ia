@@ -11,6 +11,10 @@ const zlib = require('node:zlib');
 const { read, update, ROOT, DATA, acquireServerLock } = require('./store');
 const auth = require('./auth');
 const { AI_ENABLED, MODEL, bad, str, company, normalize, demoAnswer, aiAnswer } = require('./resposta');
+const whatsapp = require('./whatsapp');
+const conversas = require('./conversas');
+// null quando o WhatsApp não foi configurado; configuração pela metade impede a partida.
+const WPP = whatsapp.loadConfig(process.env);
 
 const SITE_PUBLICO = path.join(ROOT, 'site', 'publico');
 const SITE_INTERNO = path.join(ROOT, 'site', 'interno');
@@ -259,6 +263,21 @@ const server=http.createServer(async (req,res)=>{
         const [samples,commercial]=await Promise.all([read('leads-demonstracao.json'),read('interesses-comerciais-teste.json')]);
         return json(res,200,{items:[...samples.map(x=>({...x,kind:'orçamento (teste)'})),...commercial.map(x=>({...x,kind:'comercial (teste)'}))].sort((a,b)=>(b.createdAt||'').localeCompare(a.createdAt||''))});
       }
+      // Conversas do WhatsApp: admin vê todas; atendimento só as da empresa do número.
+      if (pathname==='/api/staff/whatsapp') {
+        const user=allow(s,['atendimento','admin']);requireCompany(user);
+        if(!WPP) return json(res,200,{enabled:false,items:[]});
+        const list=(await conversas.listar()).filter(c=>inCompany(user,c));
+        list.sort((a,b)=>(b.atualizadoEm||'').localeCompare(a.atualizadoEm||''));
+        return json(res,200,{enabled:true,items:list.map(conversas.resumo)});
+      }
+      const wppMatch=pathname.match(/^\/api\/staff\/whatsapp\/([a-f0-9-]{36})$/);
+      if (wppMatch) {
+        const user=allow(s,['atendimento','admin']);requireCompany(user);
+        const c=(await conversas.listar()).find(x=>x.id===wppMatch[1]);
+        if(!c||!inCompany(user,c)) throw bad(404,'Conversa não encontrada.');
+        return json(res,200,{item:conversas.completa(c)});
+      }
       if (pathname==='/api/admin/plans') {allow(s,['admin']);return json(res,200,{plans:PLANS, statuses:SUB_STATUSES,automaticBilling:false});}
       if (pathname==='/api/admin/companies') {allow(s,['admin']);return json(res,200,{items:await read('empresas.json')});}
       if (pathname==='/api/admin/users') {
@@ -376,6 +395,33 @@ const server=http.createServer(async (req,res)=>{
         if(action==='assign') x.assignedTo=value==='me'?user.name:null;
         x.updatedAt=new Date().toISOString();return stripRequest(x,user.role);
       });await audit('solicitacao_'+action,user.username,`${item.id}: ${value}`);return json(res,200,{item});
+    }
+    const wppAction=pathname.match(/^\/api\/staff\/whatsapp\/([a-f0-9-]{36})\/(assumir|devolver|mensagens)$/);
+    if(wppAction && req.method==='POST') {
+      const user=allow(s,['atendimento','admin']);requireCompany(user);
+      if(!WPP) throw bad(503,'WhatsApp não configurado.');
+      const [,id,action]=wppAction;
+      if(action==='mensagens') {
+        const texto=str(input.texto,1000);
+        if(!texto) throw bad(400,'Escreva a mensagem.');
+        const c=(await conversas.listar()).find(x=>x.id===id);
+        if(!c||!inCompany(user,c)) throw bad(404,'Conversa não encontrada.');
+        if(c.modo!=='humano') throw bad(409,'Assuma a conversa antes de responder.');
+        if(!conversas.janelaAberta(c)) throw bad(409,'Passaram 24 horas desde a última mensagem do cliente. A Meta só permite responder com um modelo aprovado.');
+        try { await whatsapp.graphSend(WPP,c.telefone,texto); }
+        catch(err) { console.error('WhatsApp: falha ao enviar para',whatsapp.mask(c.telefone)+':',err.message); throw bad(502,'Não foi possível enviar pelo WhatsApp. Tente novamente.'); }
+        await conversas.registrarSaida({to:c.telefone,texto,de:'atendente',autor:user.name});
+        await audit('whatsapp_resposta',user.username,id);
+      } else {
+        await conversas.alterar(id,c=>{
+          if(!c||!inCompany(user,c)) throw bad(404,'Conversa não encontrada.');
+          if(action==='assumir') Object.assign(c,{modo:'humano',atendente:user.name,pedidoAtendente:false});
+          else Object.assign(c,{modo:'robo',atendente:null});
+        });
+        await audit('whatsapp_'+action,user.username,id);
+      }
+      const c=(await conversas.listar()).find(x=>x.id===id);
+      return json(res,200,{item:conversas.completa(c)});
     }
     // Administração exclusiva, independente de exibir / esconder botões no frontend.
     const admin=allow(s,['admin']);
@@ -499,5 +545,20 @@ async function start() {
   console.log(AI_ENABLED?`IA: ${MODEL}`:'IA: demonstração programada.');
   console.log('Os usuarios sao preservados em uma pasta permanente.\n');
   });
+  if (WPP) {
+    // Mesmo processo (mesma fila de gravação), porta separada: o túnel só enxerga o webhook.
+    const webhook=whatsapp.createWebhook(WPP,{conversas:{
+      entrada:msg=>conversas.registrarEntrada(msg,WPP.companyId),
+      saida:conversas.registrarSaida
+    }});
+    webhook.on('error',err=>{console.error('WhatsApp: falha ao abrir a porta',WPP.port+':',err.message);process.exitCode=1;});
+    webhook.listen(WPP.port,whatsapp.HOST,()=>{
+      console.log(`WhatsApp: webhook em http://${whatsapp.HOST}:${WPP.port}${whatsapp.ROUTE}`);
+      console.log(`Aponte o túnel SOMENTE para a porta ${WPP.port}, nunca para a ${PORT}.`);
+      if(!WPP.companyId) console.log('WhatsApp: sem WHATSAPP_EMPRESA_ID, só administradores veem as conversas.');
+      if(!WPP.allowed.length) console.log('ATENÇÃO: sem WHATSAPP_ALLOWED_NUMBERS, qualquer número que escrever recebe resposta.');
+    });
+    for(const signal of ['SIGINT','SIGTERM']) process.once(signal,()=>webhook.close());
+  }
 }
 start().catch(error=>{console.error('Falha ao preparar dados:',error.message);unlock();process.exitCode=1;});

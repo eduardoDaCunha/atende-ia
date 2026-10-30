@@ -47,3 +47,11 @@ button,.primary,.ghost,.link,.tag,.status,.loginbox .return-public{border-radius
 
 .biz-company button{border-radius:8px}.biz-actions button:focus-visible,.biz-form button:focus-visible{outline:3px solid #d2ff70;outline-offset:2px}
 .biz-company label{display:grid;gap:6px;font-size:13px}.biz-company select,.biz-company input{min-width:0}.biz-company .notice{margin:0}
+
+/* v0.3.8.5: conversas do WhatsApp no atendimento. */
+.wpp-list{max-height:520px}
+.wpp-messages{max-height:420px;overflow-y:auto;margin:12px 0;padding-right:4px}
+.message.wpp-cliente{background:#0c1a2b}
+.message.wpp-robo{background:#14202a;border-style:dashed}
+.message.wpp-atendente{background:#142923;border-color:#3c6b4a}
+.status.wpp-alert{background:#4a3a1c;color:var(--warning)}

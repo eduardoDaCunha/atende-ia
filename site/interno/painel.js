@@ -238,6 +238,7 @@ async function initStaff(){
     }catch(err){target.append(el('p',err.message));}
   });
   await refreshStaff();
+  await initWhatsApp();
 }
 async function refreshStaff(){
   const stats=await api('/api/staff/stats');const target=$('#stats');target.replaceChildren();
@@ -265,6 +266,74 @@ async function modifyRequest(action,value){
   try{const {item}=await api(`/api/staff/requests/${currentRequest}/${action}`,'POST',{value});
     await openStaff(item.id);await refreshStaff();feedback('#staff-feedback','Solicitação atualizada.',true);
   }catch(err){feedback('#staff-feedback',err.message);await openStaff(currentRequest);}
+}
+// Conversas do WhatsApp: o robô responde até um atendente assumir; depois a pessoa responde por aqui.
+let currentChat=null,chatLoading=false;
+const chatAuthor={cliente:'Cliente',robo:'Robô',atendente:'Atendente'};
+const phone=n=>n?'+'+n:'';
+async function initWhatsApp(){
+  const {enabled}=await api('/api/staff/whatsapp');
+  if(!enabled)return;
+  show($('#wpp-box'),true);
+  $('#wpp-take').addEventListener('click',()=>chatAction('assumir'));
+  $('#wpp-release').addEventListener('click',()=>chatAction('devolver'));
+  $('#wpp-reply').addEventListener('submit',async e=>{
+    e.preventDefault();if(!currentChat)return;
+    const form=e.currentTarget,btn=form.querySelector('button');btn.disabled=true;
+    try{const {item}=await api(`/api/staff/whatsapp/${currentChat}/mensagens`,'POST',{texto:form.texto.value});
+      form.reset();renderChat(item);await loadChats();feedback('#wpp-feedback','Mensagem enviada pelo WhatsApp.',true);}
+    catch(err){feedback('#wpp-feedback',err.message);}finally{btn.disabled=false;}
+  });
+  await refreshChats();
+  // Novas mensagens chegam pelo webhook; a tela confere a cada 10 segundos.
+  setInterval(refreshChats,10_000);
+}
+async function refreshChats(){
+  if(chatLoading||document.hidden)return;chatLoading=true;
+  try{await loadChats();if(currentChat)await openChat(currentChat,false);$('#wpp-status').textContent='Atualizado às '+new Date().toLocaleTimeString('pt-BR');}
+  catch(err){$('#wpp-status').textContent='Falha ao atualizar: '+err.message;}
+  finally{chatLoading=false;}
+}
+async function loadChats(){
+  const {items}=await api('/api/staff/whatsapp');const list=$('#wpp-list');list.replaceChildren();
+  if(!items.length)list.append(el('p','Nenhuma conversa ainda.','muted'));
+  items.forEach(c=>{
+    const outer=el('div',null,'item'+(c.id===currentChat?' selected':''));outer.dataset.id=c.id;
+    const button=el('button');button.type='button';
+    button.append(el('strong',c.nome||phone(c.telefone)),el('span',c.modo==='humano'?'Com '+(c.atendente||'atendente'):'Robô','status'));
+    if(c.pedidoAtendente)button.append(el('span','Pediu atendente','status wpp-alert'));
+    outer.append(button,el('p',`${c.nome?phone(c.telefone)+' • ':''}${date(c.atualizadoEm)}${c.ultima?' • '+chatAuthor[c.ultima.de]+': '+c.ultima.texto:''}`));
+    button.addEventListener('click',()=>openChat(c.id));list.append(outer);
+  });
+}
+async function openChat(id,clearFeedback=true){
+  const {item}=await api(`/api/staff/whatsapp/${id}`);currentChat=id;
+  renderChat(item);if(clearFeedback)feedback('#wpp-feedback','');markSelected('#wpp-list',id);
+}
+function renderChat(c){
+  const box=$('#wpp-detail'),old=box.querySelector('.wpp-messages');
+  // Rola até o fim ao abrir, quando chega mensagem nova ou se já estava no fim; senão preserva a leitura.
+  const sameChat=old&&old.dataset.chat===c.id,before=sameChat?Number(old.dataset.count):0;
+  const atBottom=!sameChat||c.mensagens.length>before||old.scrollTop+old.clientHeight>=old.scrollHeight-20;
+  const keepScroll=sameChat?old.scrollTop:0;
+  box.classList.remove('muted');
+  box.replaceChildren(el('h3',c.nome||phone(c.telefone)),el('p',`${phone(c.telefone)} • ${c.modo==='humano'?'Atendimento humano: '+(c.atendente||''):'Robô respondendo'}`,'muted'));
+  const msgs=el('div',null,'wpp-messages');msgs.dataset.chat=c.id;msgs.dataset.count=String(c.mensagens.length);
+  c.mensagens.forEach(m=>{const b=el('div',null,'message wpp-'+m.de);b.append(el('small',`${m.de==='atendente'?m.autor:chatAuthor[m.de]} • ${date(m.em)}`),el('div',m.texto));msgs.append(b);});
+  box.append(msgs);msgs.scrollTop=atBottom?msgs.scrollHeight:keepScroll;
+  show($('#wpp-actions'),true);
+  const human=c.modo==='humano';
+  show($('#wpp-take'),!human);show($('#wpp-release'),human);
+  show($('#wpp-reply'),human&&c.janelaAberta);
+  $('#wpp-window').textContent=c.janelaAberta
+    ?`Pode responder com texto livre até ${date(c.janelaFechaEm)} (24 h após a última mensagem do cliente).`
+    :'Passaram 24 h desde a última mensagem do cliente: a Meta só permite responder com modelo aprovado.';
+}
+async function chatAction(action){
+  if(!currentChat)return;
+  try{const {item}=await api(`/api/staff/whatsapp/${currentChat}/${action}`,'POST',{});renderChat(item);await loadChats();
+    feedback('#wpp-feedback',action==='assumir'?'Você assumiu a conversa: o robô parou de responder este cliente.':'Conversa devolvida ao robô.',true);}
+  catch(err){feedback('#wpp-feedback',err.message);}
 }
 // Reautenticação visual com campo password: nunca usa window.prompt (texto visível).
 function verifyAdmin(action){

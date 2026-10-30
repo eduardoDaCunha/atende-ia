@@ -12,7 +12,7 @@ const assert=require('node:assert/strict');
  const src=path.resolve(__dirname,'..');
  const temp=await fs.mkdtemp(path.join(os.tmpdir(),'atende-serve-'));
  const dir=path.join(temp,'app'); await fs.mkdir(dir);
- for(const file of ['server.js','auth.js','store.js','resposta.js','empresa.json']) await fs.copyFile(path.join(src,file),path.join(dir,file));
+ for(const file of ['server.js','auth.js','store.js','resposta.js','whatsapp.js','conversas.js','empresa.json']) await fs.copyFile(path.join(src,file),path.join(dir,file));
  await fs.cp(path.join(src,'site'),path.join(dir,'site'),{recursive:true});
  const port=33000+Math.floor(Math.random()*2000);
  const tail='maquina-teste.tailnet-exemplo.ts.net';

@@ -8,7 +8,7 @@ const assert = require('node:assert/strict');
 (async()=>{
   const root=path.resolve(__dirname,'..'), sandbox=await fs.mkdtemp(path.join(os.tmpdir(),'atende-tests-'));
   const base=path.join(sandbox,'app');await fs.mkdir(base);
-  for(const name of ['server.js','auth.js','store.js','resposta.js','setup-admin.js','empresa.json'])await fs.copyFile(path.join(root,name),path.join(base,name));
+  for(const name of ['server.js','auth.js','store.js','resposta.js','whatsapp.js','conversas.js','setup-admin.js','empresa.json'])await fs.copyFile(path.join(root,name),path.join(base,name));
   await fs.cp(path.join(root,'site'),path.join(base,'site'),{recursive:true});
   const port=32000+Math.floor(Math.random()*1000),origin=`http://127.0.0.1:${port}`;
   let server;

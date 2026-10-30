@@ -17,5 +17,8 @@ REM WhatsApp > Configuracao da API > Token de acesso
 set "WHATSAPP_TOKEN="
 REM WhatsApp > Configuracao da API > Identificacao do numero de telefone
 set "WHATSAPP_PHONE_NUMBER_ID="
+REM ID da empresa (painel admin > Empresas) dona deste numero: o atendimento dela ve as conversas.
+REM Sem ele, so administradores veem as conversas.
+set "WHATSAPP_EMPRESA_ID="
 REM Numeros que podem receber resposta durante o teste, com 55 e DDD, separados por virgula.
 set "WHATSAPP_ALLOWED_NUMBERS="

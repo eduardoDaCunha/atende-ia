@@ -27,6 +27,7 @@ echo Pagina comercial: http://127.0.0.1:3011
 echo Acesso interno (somente para sua equipe): http://127.0.0.1:3011/acesso
 echo.
 if defined TAILSCALE_HOST (echo Tailscale HTTPS privado: https://%TAILSCALE_HOST%/) else (echo Tailscale desativado: copie config-local.exemplo.bat para config-local.bat e informe seu hostname.)
+if defined WHATSAPP_TOKEN (echo WhatsApp ligado: abra o tunel SOMENTE para a porta 3012 - cloudflared tunnel --url http://127.0.0.1:3012)
 echo Mantenha esta janela aberta para usar o sistema.
 node server.js
 pause

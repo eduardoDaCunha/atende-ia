@@ -47,7 +47,7 @@ O Tailscale Serve deve apontar para `http://127.0.0.1:3011` e seu computador dev
 
 ## WhatsApp (teste)
 
-O agente pode responder pelo WhatsApp com a API oficial da Meta, usando o número de teste gratuito. O módulo `whatsapp.js` roda separado do painel, numa porta própria (3012), e só aceita mensagens assinadas pela Meta. Passo a passo em **WHATSAPP-TESTE.md**.
+O agente responde pelo WhatsApp com a API oficial da Meta e a equipe acompanha as conversas no painel de atendimento, podendo **assumir** um cliente (o robô para de responder) e responder pelo próprio painel. O webhook roda dentro do servidor, numa porta própria (3012) que só aceita mensagens assinadas pela Meta. Passo a passo em **WHATSAPP-TESTE.md**.
 
 ## Recuperação do administrador
 

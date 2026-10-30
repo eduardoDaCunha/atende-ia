@@ -1,19 +1,22 @@
-/** Atende.IA — webhook do WhatsApp Cloud API (Meta), em processo separado do painel.
- *  Escuta só em 127.0.0.1 e só na rota /webhook/whatsapp: o túnel HTTPS aponta para
- *  esta porta, nunca para a do painel. Toda mensagem recebida precisa da assinatura
- *  X-Hub-Signature-256 da Meta. Conversas ficam apenas na memória: este processo não
- *  grava nos arquivos JSON do servidor principal.
+/** Atende.IA — webhook do WhatsApp Cloud API (Meta).
+ *  Roda dentro do processo do server.js, mas num servidor HTTP próprio
+ *  (127.0.0.1:3012) que só conhece a rota /webhook/whatsapp: o túnel HTTPS aponta
+ *  para esta porta, nunca para a do painel. Toda mensagem recebida precisa da
+ *  assinatura X-Hub-Signature-256 da Meta. Este módulo não grava arquivos: quem
+ *  guarda as conversas é o servidor, pelas funções passadas em `conversas`.
  */
 'use strict';
 const http = require('node:http');
 const crypto = require('node:crypto');
-const { AI_ENABLED, MODEL, str, company, demoAnswer, aiAnswer } = require('./resposta');
+const { str, company, demoAnswer, aiAnswer, AI_ENABLED } = require('./resposta');
 
 const ROUTE = '/webhook/whatsapp';
 const HOST = '127.0.0.1';
 const MAX_BODY = 256_000;
 const HISTORY_TTL = 24 * 60 * 60 * 1000;
+const NAMES = {verifyToken:'WHATSAPP_VERIFY_TOKEN',appSecret:'WHATSAPP_APP_SECRET',token:'WHATSAPP_TOKEN',phoneNumberId:'WHATSAPP_PHONE_NUMBER_ID'};
 
+/** Lê a configuração. Retorna null quando nada foi preenchido (WhatsApp desligado). */
 function loadConfig(env=process.env) {
   const config = {
     port: Number(env.WHATSAPP_PORT || 3012),
@@ -21,14 +24,21 @@ function loadConfig(env=process.env) {
     appSecret: str(env.WHATSAPP_APP_SECRET, 200),
     token: str(env.WHATSAPP_TOKEN, 1000),
     phoneNumberId: str(env.WHATSAPP_PHONE_NUMBER_ID, 40),
-    graphVersion: str(env.WHATSAPP_GRAPH_VERSION, 10) || 'v23.0',
+    graphVersion: str(env.WHATSAPP_GRAPH_VERSION, 10) || 'v25.0',
+    // Só para testes automatizados: aponta o envio para um servidor falso local.
+    graphBase: str(env.WHATSAPP_GRAPH_BASE, 100) || 'https://graph.facebook.com',
+    companyId: str(env.WHATSAPP_EMPRESA_ID, 36),
     allowed: str(env.WHATSAPP_ALLOWED_NUMBERS, 500).split(',').map(x=>x.replace(/\D/g,'')).filter(Boolean),
   };
-  const missing = ['verifyToken','appSecret','token','phoneNumberId'].filter(k=>!config[k]);
-  if (missing.length) throw new Error('Configuração do WhatsApp incompleta. Preencha em config-local.bat: '+missing.map(k=>({verifyToken:'WHATSAPP_VERIFY_TOKEN',appSecret:'WHATSAPP_APP_SECRET',token:'WHATSAPP_TOKEN',phoneNumberId:'WHATSAPP_PHONE_NUMBER_ID'})[k]).join(', '));
+  const filled = Object.keys(NAMES).filter(k=>config[k]);
+  if (!filled.length) return null;
+  const missing = Object.keys(NAMES).filter(k=>!config[k]);
+  if (missing.length) throw new Error('Configuração do WhatsApp incompleta. Preencha em config-local.bat: '+missing.map(k=>NAMES[k]).join(', '));
   if (config.verifyToken.length < 16) throw new Error('WHATSAPP_VERIFY_TOKEN deve ter pelo menos 16 caracteres.');
   if (!/^\d{5,30}$/.test(config.phoneNumberId)) throw new Error('WHATSAPP_PHONE_NUMBER_ID deve conter apenas números.');
-  if (!/^v\d+\.\d+$/.test(config.graphVersion)) throw new Error('WHATSAPP_GRAPH_VERSION inválida. Exemplo: v23.0');
+  if (!/^v\d+\.\d+$/.test(config.graphVersion)) throw new Error('WHATSAPP_GRAPH_VERSION inválida. Exemplo: v25.0');
+  if (!/^(https:\/\/graph\.facebook\.com|http:\/\/127\.0\.0\.1:\d{2,5})$/.test(config.graphBase)) throw new Error('WHATSAPP_GRAPH_BASE inválida.');
+  if (config.companyId && !/^[a-f0-9-]{36}$/.test(config.companyId)) throw new Error('WHATSAPP_EMPRESA_ID deve ser o ID de uma empresa cadastrada no painel.');
   if (!Number.isInteger(config.port) || config.port < 1024 || config.port > 65535) throw new Error('WHATSAPP_PORT inválida.');
   return config;
 }
@@ -59,7 +69,7 @@ const mask = number => '***' + String(number).slice(-4);
 async function graphSend(config, to, text) {
   const controller = new AbortController(); const timer = setTimeout(()=>controller.abort(), 15_000);
   try {
-    const response = await fetch(`https://graph.facebook.com/${config.graphVersion}/${config.phoneNumberId}/messages`, {
+    const response = await fetch(`${config.graphBase}/${config.graphVersion}/${config.phoneNumberId}/messages`, {
       method:'POST', signal:controller.signal,
       headers:{'Content-Type':'application/json', Authorization:`Bearer ${config.token}`},
       body:JSON.stringify({messaging_product:'whatsapp', recipient_type:'individual', to, type:'text', text:{preview_url:false, body:text}}),
@@ -76,8 +86,10 @@ async function defaultAnswer(text, history) {
   try { return await aiAnswer(text, history, c, 'whatsapp'); }
   catch { return 'Desculpe, não consegui responder agora. Pode tentar de novo em instantes?'; }
 }
+// Sem servidor (testes do módulo): nada é guardado e o robô sempre responde.
+const semRegistro = { entrada: async () => ({modo:'robo'}), saida: async () => {} };
 
-function createWebhook(config, { send=(to,text)=>graphSend(config,to,text), answer=defaultAnswer, log=console } = {}) {
+function createWebhook(config, { send=(to,text)=>graphSend(config,to,text), answer=defaultAnswer, conversas=semRegistro, log=console } = {}) {
   const seen = new Map();      // id da mensagem -> horário (a Meta pode reenviar o mesmo evento)
   const histories = new Map(); // número -> {at, items}
   const rate = new Map();      // número -> {at, count}
@@ -104,20 +116,27 @@ function createWebhook(config, { send=(to,text)=>graphSend(config,to,text), answ
     if (histories.size > 500) for (const [k,v] of histories) if (now - v.at > HISTORY_TTL) histories.delete(k);
     return fresh;
   }
-  async function handleMessage(msg) {
+  async function reply(from, text) {
+    await send(from, text);
+    await conversas.saida({to:from, texto:text, de:'robo'});
+  }
+  async function handleMessage(msg, nome) {
     const from = String(msg.from || '').replace(/\D/g, '');
     if (!from || !msg.id || !firstTime(msg.id)) return;
     if (!isAllowed(from, config.allowed)) { log.log(`Ignorada: ${mask(from)} fora de WHATSAPP_ALLOWED_NUMBERS.`); return; }
     if (!withinLimit(from)) { log.log(`Limite de mensagens atingido: ${mask(from)}.`); return; }
-    if (msg.type !== 'text') { await send(from, 'Por enquanto consigo ler apenas mensagens de texto. Pode escrever sua dúvida?'); return; }
-    const text = str(msg.text?.body, 1000);
+    const text = msg.type === 'text' ? str(msg.text?.body, 1000) : '';
+    const conversa = await conversas.entrada({from, nome:str(nome, 80), texto:text || `[${str(msg.type,20) || 'mensagem'} recebida]`});
+    // Com um atendente na conversa, o robô só registra: quem responde é a pessoa.
+    if (conversa?.modo === 'humano') { log.log(`Com atendente: ${mask(from)}.`); return; }
+    if (msg.type !== 'text') { await reply(from, 'Por enquanto consigo ler apenas mensagens de texto. Pode escrever sua dúvida?'); return; }
     if (!text) return;
     const history = historyOf(from);
-    const reply = str(await answer(text, history.items.slice(-8)), 1200) || 'Pode repetir, por favor?';
-    history.items.push({role:'user', text}, {role:'assistant', text:reply});
+    const answerText = str(await answer(text, history.items.slice(-8)), 1200) || 'Pode repetir, por favor?';
+    history.items.push({role:'user', text}, {role:'assistant', text:answerText});
     if (history.items.length > 16) history.items.splice(0, history.items.length - 16);
     history.at = Date.now();
-    await send(from, reply);
+    await reply(from, answerText);
     log.log(`Respondida: ${mask(from)}.`);
   }
   function processPayload(payload) {
@@ -128,54 +147,46 @@ function createWebhook(config, { send=(to,text)=>graphSend(config,to,text), answ
         if (change?.field !== 'messages' || !value) continue;
         // Só responde mensagens enviadas ao número configurado; ignora status de entrega.
         if (String(value.metadata?.phone_number_id || '') !== config.phoneNumberId) continue;
+        const contacts = Array.isArray(value.contacts) ? value.contacts : [];
         for (const msg of Array.isArray(value.messages) ? value.messages : []) {
-          const job = handleMessage(msg).catch(err => log.error(`Falha ao responder: ${err.message}`));
+          const nome = contacts.find(c => c?.wa_id === msg?.from)?.profile?.name || '';
+          // Uma mensagem por vez: a ordem de chegada é preservada na conversa.
+          const job = (pending.size ? Promise.all([...pending]) : Promise.resolve())
+            .then(() => handleMessage(msg, nome))
+            .catch(err => log.error(`Falha ao responder: ${err.message}`));
           pending.add(job); job.finally(() => pending.delete(job));
         }
       }
   }
-  function reply(res, status, text='') {
+  function respond(res, status, text='') {
     res.writeHead(status, {'Content-Type':'text/plain; charset=utf-8','Cache-Control':'no-store','X-Content-Type-Options':'nosniff','X-Robots-Tag':'noindex'});
     res.end(text);
   }
   const server = http.createServer(async (req, res) => {
     let url;
-    try { url = new URL(req.url, 'http://localhost'); } catch { return reply(res, 400); }
-    if (url.pathname !== ROUTE) return reply(res, 404, 'Não encontrado.');
+    try { url = new URL(req.url, 'http://localhost'); } catch { return respond(res, 400); }
+    if (url.pathname !== ROUTE) return respond(res, 404, 'Não encontrado.');
     if (req.method === 'GET') {
       // Verificação do webhook pela Meta: devolve o desafio só com o token correto.
       const ok = url.searchParams.get('hub.mode') === 'subscribe' && sameSecret(url.searchParams.get('hub.verify_token') || '', config.verifyToken);
-      return ok ? reply(res, 200, str(url.searchParams.get('hub.challenge'), 200)) : reply(res, 403, 'Token inválido.');
+      const challenge = url.searchParams.get('hub.challenge') || '';
+      return ok && /^[A-Za-z0-9_-]{1,200}$/.test(challenge) ? respond(res, 200, challenge) : respond(res, 403, 'Token inválido.');
     }
-    if (req.method !== 'POST') return reply(res, 405);
+    if (req.method !== 'POST') return respond(res, 405);
     const chunks = []; let size = 0;
     try {
-      for await (const part of req) { size += part.length; if (size > MAX_BODY) return reply(res, 413); chunks.push(part); }
-    } catch { return reply(res, 400); }
+      for await (const part of req) { size += part.length; if (size > MAX_BODY) return respond(res, 413); chunks.push(part); }
+    } catch { return respond(res, 400); }
     const raw = Buffer.concat(chunks);
-    if (!validSignature(raw, req.headers['x-hub-signature-256'], config.appSecret)) return reply(res, 401, 'Assinatura inválida.');
+    if (!validSignature(raw, req.headers['x-hub-signature-256'], config.appSecret)) return respond(res, 401, 'Assinatura inválida.');
     let payload;
-    try { payload = JSON.parse(raw.toString('utf8')); } catch { return reply(res, 400); }
+    try { payload = JSON.parse(raw.toString('utf8')); } catch { return respond(res, 400); }
     // A Meta espera 200 rápido; a resposta ao cliente segue em segundo plano.
-    reply(res, 200, 'OK');
+    respond(res, 200, 'OK');
     processPayload(payload);
   });
-  server.idle = () => Promise.all([...pending]);
+  server.idle = async () => { while (pending.size) await Promise.all([...pending]); };
   return server;
 }
 
-if (require.main === module) {
-  let config;
-  try { config = loadConfig(); }
-  catch (err) { console.error(err.message); process.exit(1); }
-  const server = createWebhook(config);
-  for (const signal of ['SIGINT','SIGTERM']) process.once(signal, () => server.close(() => process.exit(0)));
-  server.on('error', err => { console.error('Falha ao iniciar:', err.message); process.exitCode = 1; });
-  server.listen(config.port, HOST, () => {
-    console.log(`\nAtende.IA WhatsApp — http://${HOST}:${config.port}${ROUTE}`);
-    console.log('Aponte o túnel HTTPS SOMENTE para esta porta. Nunca para a porta do painel.');
-    console.log(AI_ENABLED ? `IA: ${MODEL}` : 'IA: respostas de demonstração (defina GEMINI_API_KEY para usar a IA).');
-    console.log(config.allowed.length ? `Respondendo apenas ${config.allowed.length} número(s) autorizado(s).` : 'ATENÇÃO: sem WHATSAPP_ALLOWED_NUMBERS, qualquer número que escrever recebe resposta.');
-  });
-}
-module.exports = { createWebhook, loadConfig, validSignature, isAllowed, ROUTE };
+module.exports = { createWebhook, loadConfig, graphSend, validSignature, isAllowed, mask, ROUTE, HOST };

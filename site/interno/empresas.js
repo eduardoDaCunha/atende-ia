@@ -53,7 +53,8 @@ async function saveCompany(form,id,name,action){
 function renderCompany(c){
   const box=uiNode('article',null,'biz-company');const head=uiNode('div',null,'biz-head');
   const title=uiNode('h3',c.name);head.append(title,uiNode('span',`${c.city||'Cidade não informada'} / ${c.uf||'UF não informada'}`,'muted'));
-  box.append(head);
+  // O ID liga o número de WhatsApp à empresa (WHATSAPP_EMPRESA_ID no config-local.bat).
+  box.append(head,uiNode('p',`ID da empresa: ${c.id}`,'biz-note'));
   const details=uiNode('form',null,'biz-form-grid');
   details.append(inputField('Nome da empresa','name',c.name,'text',{required:true,maxlength:100}));
   details.append(inputField('Cidade','city',c.city,'text',{required:true,maxlength:80}));
