@@ -1,0 +1,14 @@
+{
+  "name": "Empresa de demonstração",
+  "assistantName": "Atendimento demonstrativo",
+  "serviceArea": "Área de atendimento de exemplo (não é uma empresa real)",
+  "services": [
+    "reforma de banheiro",
+    "pintura residencial",
+    "reforma de cozinha",
+    "revestimentos e acabamentos"
+  ],
+  "policy": "Orçamentos são personalizados após avaliação. Não informe preços finais, prazos garantidos ou disponibilidade de agenda sem confirmação humana.",
+  "contact": "A equipe poderá avaliar a solicitação depois do preenchimento do formulário de demonstração. Nenhum contato é enviado automaticamente nesta versão.",
+  "welcome": "Olá! Esta é uma simulação de atendimento com dados ilustrativos. Você pode perguntar sobre os serviços cadastrados ou testar um orçamento. Não informe dados pessoais reais."
+}

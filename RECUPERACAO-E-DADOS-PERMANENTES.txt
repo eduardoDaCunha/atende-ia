@@ -1,0 +1,36 @@
+ATENDE.IA v0.3.8.3 | COMO PARAR DE PERDER SUAS CONTAS
+
+POR QUE ISSO ACONTECIA?
+Cada versao antiga gravava data/usuarios.json dentro da pasta da versao. A nova versao podia nao encontrar as contas existentes.
+
+AGORA (NO WINDOWS):
+%LOCALAPPDATA%\AtendeIA\data
+As proximas versoes que utilizarem o mesmo armazenamento poderao atualizar apenas o programa, sem deslocar os dados.
+Nunca apague a pasta de dados. E sempre faca backup protegido antes de atualizar.
+
+PASSO A PASSO:
+1) Feche todos os servidores Atende.IA (Ctrl+C) antes de qualquer importacao/recuperacao.
+2) Extraia a versao nova em uma pasta separada. NAO exclua a versao antiga.
+3) Execute PREPARAR-DADOS.bat.
+   - Se a nova versao ja encontrar um cadastro permanente, ele sera preservado, sem sobrescrever.
+   - Se encontrar usuarios.json dentro da pasta data local, oferecerá importacao.
+   - Senao, cole o caminho COMPLETO da pasta data da versao antiga que tinha seu login.
+   - Confirme digitando IMPORTAR. Nenhum arquivo da pasta anterior e apagado.
+   - Se houver cadastro permanente, uma importacao de outra fonte sera recusada para evitar sobrescritas.
+4) Se nao souber a senha, com o servidor desligado, execute RECUPERAR-ADMIN.bat.
+   - Escolha seu usuario admin pelo login exato, confirme digitando RECUPERAR.
+   - O programa salva uma copia de seguranca de usuarios.json antes de criar uma senha provisoria.
+   - Anote a senha e nao compartilhe. Troque-a no primeiro login.
+5) Execute INICIAR-ATENDE.bat e entre em http://127.0.0.1:3011/acesso.
+
+IMPORTANTE:
+- Nao execute CRIAR-ADMIN.bat quando ja houver usuarios.
+- Nao delete usuarios.json nem a pasta data para 'consertar'.
+- Nao copie dados de fontes diferentes por cima de uma pasta ja preenchida.
+- Nao envie pastas data, arquivos usuarios.json, senhas ou capturas de tela com credenciais.
+- Sessões de login ainda ficam em memoria: reiniciar o servidor exige login de novo, mas NAO deveria alterar a senha.
+- A versao segue local/teste. Nao publique via Tailscale Funnel nem internet publica.
+
+ATENCAO: APENAS UM SERVIDOR POR VEZ. A trava em data\.servidor.lock evita atualizacoes simultaneas.
+A configuracao personalizada do agente tambem e salva na pasta permanente depois da importacao.
+Ao atualizar, voce faz login novamente, mas com sua senha antiga: a sessao do navegador nao e permanente.

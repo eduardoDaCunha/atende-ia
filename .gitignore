@@ -1,0 +1,29 @@
+/data/
+.env
+.env.*
+node_modules/
+.DS_Store
+*.log
+
+# Configuração local e segredos (nunca versionar)
+config-local.bat
+*.pem
+*.key
+*.p12
+*.pfx
+id_rsa*
+id_ed25519*
+id_ecdsa*
+*.ppk
+known_hosts
+authorized_keys
+
+# Dados, backups e importações
+data-importacao-*/
+*.bak
+*.backup
+usuarios.json
+solicitacoes.json
+sessoes*.json
+*.sqlite
+*.db

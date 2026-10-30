@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#0d1320">
+  <meta name="description" content="Atende.IA: demonstração de agente para responder dúvidas de serviços e registrar pedidos de contato, com acompanhamento humano.">
+  <meta property="og:type" content="website">
+  <meta property="og:locale" content="pt_BR">
+  <meta property="og:site_name" content="Atende.IA">
+  <meta property="og:title" content="Atende.IA: atendimento para sites">
+  <meta property="og:description" content="Veja o fluxo de atendimento, respostas e registros de interesse em uma demonstração para empresas.">
+  <meta name="color-scheme" content="dark light">
+  <link rel="icon" type="image/webp" sizes="128x128" href="/favicon.webp">
+  <title>Atende.IA | Atendimento inteligente para sites</title>
+  <link rel="stylesheet" href="/style.css?v=037">
+  <script src="/app.js?v=037" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#conteudo">Ir para conteúdo</a>
+  <div class="ambient ambient-one" aria-hidden="true"></div>
+  <div class="ambient ambient-two" aria-hidden="true"></div>
+
+  <header class="topbar shell" id="inicio">
+    <a class="brand" href="#inicio" aria-label="Atende IA, início"><span class="brandmark" aria-hidden="true"><img src="/favicon.webp" width="36" height="36" alt=""></span><span>atende<span class="branddot">.ia</span></span></a>
+    <nav class="main-nav" aria-label="Navegação principal">
+      <a href="#como-funciona">Como funciona</a>
+      <a href="#para-empresas">Para empresas</a>
+      <a href="#demonstracao">Testar agente</a>
+    </nav>
+    <div class="navright"><span class="pill">AMBIENTE DE TESTES</span><span class="top-note">v0.3.8</span></div>
+  </header>
+
+  <main id="conteudo">
+    <div class="shell main-grid">
+      <section class="intro" aria-labelledby="hero-title">
+        <div class="eyebrow"><span>PRODUTO</span> ATENDIMENTO PARA SITES</div>
+        <h1 id="hero-title">Responda dúvidas no site e <em>organize os contatos recebidos.</em></h1>
+        <p class="lede">O visitante pergunta sobre serviços, recebe orientações conforme as informações cadastradas e pode registrar um pedido para sua equipe acompanhar.</p>
+        <div class="hero-actions">
+          <a class="btn btn-primary" href="#demonstracao">Testar atendimento</a>
+          <button class="btn btn-outline" id="open-commercial-hero" type="button">Simular pedido comercial</button>
+        </div>
+        <div class="features">
+          <div class="feature"><span class="feature-icon feature-icon-chat" aria-hidden="true">01</span><div><strong>Respostas sobre serviços e regiões</strong><small>Na demonstração, respostas programadas. A conexão com IA é opcional.</small></div></div>
+          <div class="feature"><span class="feature-icon feature-icon-leads" aria-hidden="true">02</span><div><strong>Registro de interessados</strong><small>Pedidos de contato ficam disponíveis para acompanhamento.</small></div></div>
+          <div class="feature"><span class="feature-icon feature-icon-clock" aria-hidden="true">03</span><div><strong>Configuração por empresa</strong><small>Serviços, região de atendimento e orientações são configuráveis.</small></div></div>
+        </div>
+        <p class="demo-disclaimer"><strong id="company-proof">Empresa de demonstração</strong>. <span id="company-area">Dados ilustrativos, não representam um negócio real.</span> Não informe dados reais.</p>
+      </section>
+
+      <div class="demo-stage" id="demonstracao">
+        <section class="demo-panel" aria-label="Demonstração interativa do agente">
+        <div class="demo-titlebar"><div class="traffic" aria-hidden="true"><i></i><i></i><i></i></div><span>DEMONSTRAÇÃO DO AGENTE</span><div class="demo-controls"><span class="demo-live">INTERAÇÃO LOCAL</span></div></div>
+        <div class="chat-card">
+          <div class="chat-head">
+            <div class="avatar" aria-hidden="true"><img class="avatar-inner" src="/favicon.webp" width="38" height="38" alt=""></div>
+            <div><strong id="assistant-name">Atendimento demonstrativo</strong><small><span class="green-dot"></span> Pronto para conversar</small></div>
+            <button id="restart" type="button" title="Reiniciar conversa" aria-label="Reiniciar conversa">↻</button>
+          </div>
+          <div id="mode" class="mode-banner" role="status">Verificando o modo de atendimento...</div>
+          <div id="chat" class="chat-history" role="log" aria-live="polite" aria-relevant="additions text" aria-label="Mensagens da conversa"></div>
+          <div class="quick-actions" id="quick-actions" aria-label="Sugestões de perguntas">
+            <button type="button" data-msg="Quais serviços vocês oferecem?">Serviços</button>
+            <button type="button" data-msg="Em quais cidades vocês atendem?">Onde atendemos</button>
+            <button type="button" data-msg="Como funciona o orçamento?">Orçamentos</button>
+          </div>
+          <form id="chat-form" class="chat-input">
+            <label for="message" class="sr-only">Sua mensagem</label>
+            <input id="message" maxlength="1000" autocomplete="off" placeholder="Pode perguntar, estamos por aqui..." required>
+            <button type="submit" id="send" aria-label="Enviar mensagem" title="Enviar mensagem">Enviar</button>
+          </form>
+          <div class="chat-bottom"><small>Use apenas dados de teste.</small><button id="open-lead" type="button">Simular orçamento</button></div>
+        </div>
+        <div class="panel-footer"><span>Ambiente de demonstração com dados fictícios</span><span>v0.3.8</span></div>
+        </section>
+      </div>
+    </div>
+
+    <section id="como-funciona" class="content-section shell" aria-labelledby="works-title">
+      <div class="section-heading"><div class="eyebrow"><span>02</span> SIMPLES DE ENTENDER</div><h2 id="works-title">Como funciona na prática</h2><p>Do primeiro contato ao interesse registrado, o atendimento segue um fluxo claro.</p></div>
+      <div class="steps-grid">
+        <article class="step-card"><span class="step-count">01 / VISITANTE</span><div class="step-icon" aria-hidden="true">01</div><h3>Alguém chega ao site</h3><p>O visitante faz perguntas sobre os serviços e a região atendida.</p></article>
+        <article class="step-card"><span class="step-count">02 / ATENDIMENTO</span><div class="step-icon" aria-hidden="true">02</div><h3>O agente orienta</h3><p>Com o modelo conectado, utiliza as informações configuradas para orientar o visitante.</p></article>
+        <article class="step-card"><span class="step-count">03 / OPORTUNIDADE</span><div class="step-icon" aria-hidden="true">03</div><h3>O interesse é registrado</h3><p>Um formulário coleta as informações autorizadas para acompanhamento da equipe.</p></article>
+      </div>
+    </section>
+
+    <section id="para-empresas" class="content-section shell business-section" aria-labelledby="business-title">
+      <div>
+        <div class="eyebrow"><span>03</span> PERSONALIZADO PARA CADA NEGÓCIO</div>
+        <h2 id="business-title">Atendimento configurado com as informações da empresa.</h2>
+        <p>O Atende.IA está sendo preparado para atender empresas de todo o Brasil, com implantação remota. O ambiente de testes usa serviços ilustrativos de reforma. Cada instalação futura poderá receber informações e regras fornecidas pela empresa contratante.</p>
+        <ul class="business-list"><li>Informações e serviços configuráveis</li><li>Orientações e limites para as respostas</li><li>Captura de contatos com consentimento</li><li>Evolução para integrações, conforme o projeto</li></ul>
+      </div>
+      <div class="business-card">
+        <span class="business-label">APRESENTAÇÃO DO PRODUTO</span>
+        <h3>Quer ver como seria para sua empresa?</h3>
+        <p>Podemos demonstrar a experiência e levantar as necessidades do seu atendimento antes de definir um escopo e um orçamento.</p>
+        <button class="btn btn-primary business-button" id="open-commercial" type="button">Simular pedido comercial</button>
+        <small>Esta versão registra somente testes neste computador. Não envia mensagens nem gera contatos comerciais reais.</small>
+      </div>
+    </section>
+
+    <section class="content-section shell faq-section" id="faq" aria-labelledby="faq-title">
+      <div class="section-heading"><div class="eyebrow"><span>04</span> DÚVIDAS FREQUENTES</div><h2 id="faq-title">Antes de contratar</h2></div>
+      <div class="faq-list">
+        <details><summary>Como funciona o agente com IA?</summary><p>O atendimento utiliza informações cadastradas para responder perguntas frequentes. A demonstração atual tem respostas programadas. Uma integração com modelo de IA poderá ser conectada e testada posteriormente.</p></details>
+        <details><summary>Como o agente registra os pedidos de contato?</summary><p>Quando o visitante preenche o formulário de orçamento, a solicitação é registrada para acompanhamento. Nesta demonstração, o registro fica somente no computador, e não há envio automático à equipe de vendas.</p></details>
+        <details><summary>É possível adaptar a identidade da minha empresa?</summary><p>Sim, a proposta é personalizar serviços, área atendida, instruções e identidade visual. A configuração inicial de dados está no arquivo empresa.json.</p></details>
+      </div>
+    </section>
+  </main>
+
+  <footer class="foot shell"><span>Atende.IA | Demonstração local v0.3.8</span><span><a href="/privacidade">Política de privacidade</a> · <a href="/termos">Termos e condições</a> · Não informe dados reais</span></footer>
+
+  <dialog id="lead-dialog" class="lead-dialog" aria-labelledby="lead-title">
+    <form id="lead-form" class="lead-form">
+      <div class="lead-header"><div><div class="eyebrow">SIMULAÇÃO DE ORÇAMENTO</div><h2 id="lead-title">Simule uma solicitação de orçamento.</h2><p>Teste a captação de interessados da empresa fictícia. Preencha <strong>somente dados inventados</strong>.</p></div><button class="close-dialog" id="close-lead" type="button" aria-label="Fechar">×</button></div>
+      <label>Nome fictício<input name="name" required minlength="2" maxlength="90" placeholder="Ex.: Maria Teste"></label>
+      <label>Telefone de teste<input name="phone" required minlength="10" maxlength="30" placeholder="(48) 99999-9999"></label>
+      <label>Cidade<input name="city" required minlength="2" maxlength="90" placeholder="Ex.: São José"></label>
+      <label>Serviço desejado<textarea name="service" required minlength="3" maxlength="150" rows="2" placeholder="Ex.: Reforma de banheiro"></textarea></label>
+      <label class="consent"><input type="checkbox" name="consent" required><span>Confirmo que informei dados fictícios e autorizo seu armazenamento neste computador para testar o formulário. <a href="/privacidade" target="_blank" rel="noopener noreferrer">Política de privacidade</a> e <a href="/termos" target="_blank" rel="noopener noreferrer">Termos do teste</a>.</span></label>
+      <p class="form-feedback" id="lead-feedback" role="status"></p>
+      <button class="submit-lead" type="submit">Registrar teste de orçamento</button>
+    </form>
+  </dialog>
+
+  <dialog id="commercial-dialog" class="lead-dialog" aria-labelledby="commercial-title">
+    <form id="commercial-form" class="lead-form">
+      <div class="lead-header"><div><div class="eyebrow">INTERESSE COMERCIAL: TESTE</div><h2 id="commercial-title">Simule um pedido de demonstração.</h2><p>Este formulário ainda não envia informações à equipe de vendas. Para testar, use <strong>dados fictícios</strong>.</p></div><button class="close-dialog" id="close-commercial" type="button" aria-label="Fechar">×</button></div>
+      <label>Empresa fictícia<input name="company" required minlength="2" maxlength="100" placeholder="Ex.: Loja Exemplo"></label>
+      <label>Responsável fictício<input name="name" required minlength="2" maxlength="90" placeholder="Ex.: João Teste"></label>
+      <label>Contato de teste<input name="contact" required minlength="5" maxlength="120" placeholder="Ex.: contato@exemplo.com"></label>
+      <label>O que deseja automatizar?<textarea name="need" required minlength="3" maxlength="250" rows="3" placeholder="Ex.: dúvidas sobre produtos e pedidos de orçamento"></textarea></label>
+      <label class="consent"><input type="checkbox" name="consent" required><span>Confirmo que os dados são fictícios e autorizo o armazenamento local para este teste. <a href="/privacidade" target="_blank" rel="noopener noreferrer">Política de privacidade</a> e <a href="/termos" target="_blank" rel="noopener noreferrer">Termos do teste</a>.</span></label>
+      <p class="form-feedback" id="commercial-feedback" role="status"></p>
+      <button class="submit-lead" type="submit">Registrar simulação comercial</button>
+    </form>
+  </dialog>
+</body>
+</html>
