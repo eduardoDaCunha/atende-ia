@@ -20,6 +20,7 @@ Toda ferramenta do Atende.IA — usada pelo painel, pela linha de comando ou pel
 - **Saída limpa**: todo resultado passa por `semSegredos`.
 - **Auditoria sem conteúdo**: registra `ferramenta_<nome>`, quem usou, `ok`/`falha` e só os **nomes** dos campos, nunca os valores.
 - **Confirmação em duas etapas para ações**: a primeira chamada devolve uma prévia e um código. O código vale 5 minutos e só uma vez, só para aquela ferramenta, aqueles argumentos e aquele usuário, e deixa de valer se o servidor reiniciar. Sem ele, nada acontece.
+- **Sessão válida no painel**: as rotas `/api/ferramentas*` e `/api/admin/diagnostico` passam por `allow()` antes do núcleo, então quem está com senha provisória recebe 403 até trocá-la, como nas demais rotas.
 - **Origem local**: a linha de comando no próprio computador age como administrador, porque quem a executa já tem acesso aos arquivos. Ela não grava auditoria: outro processo não pode escrever nos arquivos do servidor. Acesso remoto sempre exige login com o perfil permitido.
 
 ## Ferramentas disponíveis

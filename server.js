@@ -348,7 +348,7 @@ const server=http.createServer(async (req,res)=>{
       if (pathname==='/api/admin/config') { allow(s,['admin']);return json(res,200,{config:company()}); }
       if (pathname==='/api/ferramentas') { allow(s,['admin','atendimento','cliente']);return json(res,200,{items:ferramentas.listar(contextoFerramenta(s))}); }
       // Diagnóstico somente leitura; sem conexões externas (essas exigem POST abaixo).
-      if (pathname==='/api/admin/diagnostico') return json(res,200,(await ferramentas.executar('diagnostico',{},contextoFerramenta(s))).resultado);
+      if (pathname==='/api/admin/diagnostico') { allow(s,['admin']);return json(res,200,(await ferramentas.executar('diagnostico',{},contextoFerramenta(s))).resultado); }
       if (pathname==='/api/admin/health') {
         allow(s,['admin']);const users=await read(auth.USERFILE),reqs=await read('solicitacoes.json');
         return json(res,200,{mode:'LOCAL — não publicar',users:users.length,requests:reqs.length,sessions:'somente na memória',database:'Arquivos JSON locais; backup manual necessário',ai:AI_ENABLED});
@@ -482,6 +482,8 @@ const server=http.createServer(async (req,res)=>{
     // Executa uma ferramenta: o núcleo confere perfil, entrada, limite e confirmação de ações.
     const toolMatch=pathname.match(/^\/api\/ferramentas\/([a-z][a-z0-9_]{2,63})$/);
     if(toolMatch && req.method==='POST') {
+      // allow() barra senha provisória; o perfil exato de cada ferramenta fica com o núcleo.
+      allow(s,['admin','atendimento','cliente']);
       if(input.args!==undefined && (typeof input.args!=='object'||input.args===null||Array.isArray(input.args))) throw bad(400,'args deve ser um objeto.');
       return json(res,200,await ferramentas.executar(toolMatch[1],input.args||{},contextoFerramenta(s),typeof input.confirmacao==='string'?input.confirmacao:undefined));
     }

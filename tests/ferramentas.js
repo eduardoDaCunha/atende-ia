@@ -140,8 +140,8 @@ async function rotas(){
   const {hashPassword}=require(path.join(base,'auth.js'));
   const pw='Senha-Ficticia-2026!',agora=new Date().toISOString(),empresa=crypto.randomUUID();
   await fs.writeFile(path.join(data,'empresas.json'),JSON.stringify([{id:empresa,name:'Empresa Fictícia',city:'Florianópolis',uf:'SC',timeZone:'America/Sao_Paulo',state:'ativa',createdAt:agora}]));
-  const u=(username,role,companyId)=>({id:crypto.randomUUID(),username,name:username,role,companyId,active:true,mustChangePassword:false,createdAt:agora,...hashPassword(pw)});
-  await fs.writeFile(path.join(data,'usuarios.json'),JSON.stringify([u('admin.teste','admin',null),u('ana.teste','atendimento',empresa)]));
+  const u=(username,role,companyId,mustChangePassword=false)=>({id:crypto.randomUUID(),username,name:username,role,companyId,active:true,mustChangePassword,createdAt:agora,...hashPassword(pw)});
+  await fs.writeFile(path.join(data,'usuarios.json'),JSON.stringify([u('admin.teste','admin',null),u('ana.teste','atendimento',empresa),u('provisorio.teste','admin',null,true)]));
   const port=37000+Math.floor(Math.random()*1000),origin=`http://127.0.0.1:${port}`;
   const server=spawn(process.execPath,['server.js'],{cwd:base,stdio:'ignore',env:{...process.env,ATENDE_DATA_DIR:data,PORT:String(port),GEMINI_API_KEY:'',TAILSCALE_HOST:'',WHATSAPP_TOKEN:'',WHATSAPP_APP_SECRET:'',WHATSAPP_VERIFY_TOKEN:'',WHATSAPP_PHONE_NUMBER_ID:''}});
   const wait=ms=>new Promise(r=>setTimeout(r,ms));
@@ -154,7 +154,12 @@ async function rotas(){
   try{
     for(let i=0;i<80;i++){try{if((await call('/api/status')).status===200)break;}catch{}await wait(100);}
     const login=async n=>{const r=await call('/api/auth/login','POST',{username:n,password:pw});assert.equal(r.status,200);return {cookie:r.cookie,csrf:r.data.csrf};};
-    const admin=await login('admin.teste'),ana=await login('ana.teste');
+    const admin=await login('admin.teste'),ana=await login('ana.teste'),provisorio=await login('provisorio.teste');
+    // Senha provisória: como nas demais rotas, nada de ferramentas antes de trocar a senha.
+    assert.equal((await call('/api/ferramentas','GET',null,provisorio)).status,403,'Senha provisória não lista ferramentas');
+    assert.equal((await call('/api/ferramentas/diagnostico','POST',{},provisorio)).status,403,'Senha provisória não executa ferramentas');
+    assert.equal((await call('/api/admin/diagnostico','GET',null,provisorio)).status,403,'Senha provisória não lê o diagnóstico');
+    assert.equal((await call('/api/admin/diagnostico','POST',{},provisorio)).status,403,'Senha provisória não testa conexões');
     assert.equal((await call('/api/ferramentas')).status,401);
     assert.deepEqual((await call('/api/ferramentas','GET',null,ana)).data.items.map(f=>f.nome),['estatisticas','listar_solicitacoes','listar_conversas_whatsapp'],'Atendimento não vê ferramentas de admin');
     assert.deepEqual((await call('/api/ferramentas','GET',null,admin)).data.items.map(f=>f.nome),['diagnostico','diagnostico_testar_conexoes','estatisticas','listar_solicitacoes','ler_solicitacao','listar_conversas_whatsapp','ler_conversa_whatsapp','listar_empresas']);
