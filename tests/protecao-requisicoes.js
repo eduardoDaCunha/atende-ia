@@ -5,6 +5,7 @@ const os=require('node:os');
 const path=require('node:path');
 const assert=require('node:assert/strict');
 const {spawn}=require('node:child_process');
+const crypto=require('node:crypto');
 (async()=>{
   const root=path.resolve(__dirname,'..');
   const base=await fs.mkdtemp(path.join(os.tmpdir(),'atende-rate-'));
@@ -12,7 +13,7 @@ const {spawn}=require('node:child_process');
   try {
     await require('./arquivos-servidor').copiar(root,base);
     await fs.mkdir(path.join(base,'data'));
-    const users=JSON.stringify([{id:'test',username:'teste',role:'admin',active:true}]);
+    const users=JSON.stringify([{id:crypto.randomUUID(),username:'teste',name:'Teste',role:'admin',active:true,mustChangePassword:false,hash:'00',salt:'00'}]);
     await fs.writeFile(path.join(base,'data','usuarios.json'),users);
     const port=38000+Math.floor(Math.random()*1000),origin=`http://127.0.0.1:${port}`;
     const env={...process.env,PORT:String(port),ATENDE_DATA_DIR:path.join(base,'data'),GEMINI_API_KEY:''};

@@ -9,5 +9,8 @@ async function copiar(origem, destino) {
   await fs.mkdir(destino, { recursive: true });
   for (const nome of ARQUIVOS) await fs.copyFile(path.join(origem, nome), path.join(destino, nome));
   for (const nome of PASTAS) await fs.cp(path.join(origem, nome), path.join(destino, nome), { recursive: true });
+  // Pacotes instalados (driver do PostgreSQL): link em vez de cópia. 'junction' funciona no Windows sem permissão de administrador.
+  const pacotes = path.join(origem, 'node_modules');
+  if (await fs.stat(pacotes).then(() => true, () => false)) await fs.symlink(path.resolve(pacotes), path.join(destino, 'node_modules'), 'junction').catch(() => {});
 }
 module.exports = { ARQUIVOS, PASTAS, copiar };

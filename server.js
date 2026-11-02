@@ -641,7 +641,8 @@ async function start() {
   if (WPP) {
     // Mesmo processo (mesma fila de gravação), porta separada: o túnel só enxerga o webhook.
     const webhook=whatsapp.createWebhook(WPP,{
-      answer:async (texto,historico)=>whatsapp.defaultAnswer(texto,historico,await D.configuracoes.obter(WPP.companyId||null)),
+      // Configuração própria da empresa do número; sem ela, a do site.
+      answer:async (texto,historico)=>whatsapp.defaultAnswer(texto,historico,(WPP.companyId&&await D.configuracoes.obter(WPP.companyId))||await D.configuracoes.obter(null)),
       conversas:{
         entrada:msg=>D.conversas.registrarEntrada({telefone:msg.from,nome:msg.nome,texto:msg.texto,idMeta:msg.idMeta,pedeAtendente:conversas.pedeAtendente(msg.texto)},WPP.companyId),
         saida:msg=>D.conversas.registrarSaida({telefone:msg.to,texto:msg.texto,de:msg.de,autor:msg.autor},WPP.companyId)

@@ -138,7 +138,9 @@ async function rotaReal(){
   for(const [nome,valor] of Object.entries(DADOS))await fs.writeFile(path.join(data,nome),JSON.stringify(valor));
   const {hashPassword}=require(path.join(base,'auth.js'));
   const pw='Senha-Ficticia-2026!',u=(username,role,companyId)=>({id:crypto.randomUUID(),username,name:username,role,companyId,active:true,mustChangePassword:false,createdAt:new Date().toISOString(),...hashPassword(pw)});
-  await fs.writeFile(path.join(data,'usuarios.json'),JSON.stringify([u('admin.teste','admin',null),u('ana.teste','atendimento',A)]));
+  // Os donos das solicitações também existem como clientes (o PostgreSQL exige: chave estrangeira).
+  const donos=DADOS['solicitacoes.json'].map((x,i)=>({...u('cliente.'+i,'cliente',x.companyId),id:x.ownerId}));
+  await fs.writeFile(path.join(data,'usuarios.json'),JSON.stringify([u('admin.teste','admin',null),u('ana.teste','atendimento',A),...donos]));
   const port=38000+Math.floor(Math.random()*1000),origin=`http://127.0.0.1:${port}`;
   const server=spawn(process.execPath,['server.js'],{cwd:base,stdio:'ignore',env:{...process.env,ATENDE_DATA_DIR:data,PORT:String(port),GEMINI_API_KEY:'',TAILSCALE_HOST:'',WHATSAPP_TOKEN:'',WHATSAPP_APP_SECRET:'',WHATSAPP_VERIFY_TOKEN:'',WHATSAPP_PHONE_NUMBER_ID:''}});
   const wait=ms=>new Promise(r=>setTimeout(r,ms));
