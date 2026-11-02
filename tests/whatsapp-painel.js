@@ -12,7 +12,7 @@ const {spawn}=require('node:child_process');
   const root=path.resolve(__dirname,'..');
   const base=await fs.mkdtemp(path.join(os.tmpdir(),'atende-wpp-painel-'));
   const data=path.join(base,'data');await fs.mkdir(data);
-  for(const name of ['server.js','auth.js','store.js','resposta.js','whatsapp.js','conversas.js','diagnostico.js','sanitizar.js','ferramentas.js','catalogo.js','negocio.js','empresa.json'])await fs.copyFile(path.join(root,name),path.join(base,name));
+  await require('./arquivos-servidor').copiar(root,base);
   await fs.cp(path.join(root,'site'),path.join(base,'site'),{recursive:true});
   const {hashPassword}=require(path.join(base,'auth.js'));
 

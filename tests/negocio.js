@@ -133,7 +133,7 @@ const rejeita=async(p,status,codigo)=>{try{await p;}catch(e){assert.equal(e.stat
 async function rotaReal(){
   const base=await fs.mkdtemp(path.join(os.tmpdir(),'atende-neg-'));
   const data=path.join(base,'data');await fs.mkdir(data);
-  for(const name of ['server.js','auth.js','store.js','resposta.js','whatsapp.js','conversas.js','diagnostico.js','sanitizar.js','ferramentas.js','catalogo.js','negocio.js','empresa.json'])await fs.copyFile(path.join(root,name),path.join(base,name));
+  await require('./arquivos-servidor').copiar(root,base);
   await fs.cp(path.join(root,'site'),path.join(base,'site'),{recursive:true});
   for(const [nome,valor] of Object.entries(DADOS))await fs.writeFile(path.join(data,nome),JSON.stringify(valor));
   const {hashPassword}=require(path.join(base,'auth.js'));

@@ -10,7 +10,7 @@ const {spawn}=require('node:child_process');
   const base=await fs.mkdtemp(path.join(os.tmpdir(),'atende-rate-'));
   let child;
   try {
-    for(const name of ['server.js','auth.js','store.js','resposta.js','whatsapp.js','conversas.js','diagnostico.js','sanitizar.js','ferramentas.js','catalogo.js','negocio.js','empresa.json'])await fs.copyFile(path.join(root,name),path.join(base,name));
+    await require('./arquivos-servidor').copiar(root,base);
     await fs.mkdir(path.join(base,'data'));
     const users=JSON.stringify([{id:'test',username:'teste',role:'admin',active:true}]);
     await fs.writeFile(path.join(base,'data','usuarios.json'),users);

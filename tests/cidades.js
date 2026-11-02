@@ -54,7 +54,7 @@ const dados=require(path.join(root,'site','interno','municipios.json'));
 async function arquivosSoParaAdmin(){
   const base=await fs.mkdtemp(path.join(os.tmpdir(),'atende-cidades-'));
   const data=path.join(base,'data');await fs.mkdir(data);
-  for(const name of ['server.js','auth.js','store.js','resposta.js','whatsapp.js','conversas.js','empresa.json'])await fs.copyFile(path.join(root,name),path.join(base,name));
+  await require('./arquivos-servidor').copiar(root,base);
   await fs.cp(path.join(root,'site'),path.join(base,'site'),{recursive:true});
   const {hashPassword}=require(path.join(base,'auth.js'));
   const pw='Senha-Ficticia-2026!',empresa=crypto.randomUUID(),agora=new Date().toISOString();
