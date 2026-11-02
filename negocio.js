@@ -7,7 +7,8 @@
  *    dadosPessoais (o MCP esconde essas ferramentas sem ATENDE_MCP_DADOS_PESSOAIS=1).
  */
 'use strict';
-const { read } = require('./store');
+// Lê pela camada de dados (JSON ou PostgreSQL), no formato dos arquivos originais.
+const lerColecao = nome => require('./dados').dados().lerColecao(nome);
 const conversas = require('./conversas');
 
 const STATUS = ['novo','em_andamento','aguardando_cliente','resolvido'];
@@ -43,7 +44,7 @@ function paginar(lista, { pagina, porPagina }) {
 }
 const recentesPrimeiro = campo => (a, b) => String(b[campo] || '').localeCompare(String(a[campo] || ''));
 
-function registrarFerramentasDeNegocio(registro, { ler = read } = {}) {
+function registrarFerramentasDeNegocio(registro, { ler = lerColecao } = {}) {
   registro.registrar({
     nome:'estatisticas', titulo:'Estatísticas do atendimento', nivel:'leitura', perfis:['admin','atendimento'],
     descricao:'Totais de solicitações por status e de conversas do WhatsApp (robô, humano, pedidos de atendente, janela de 24 h aberta). Só números.',

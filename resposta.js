@@ -10,9 +10,12 @@ const AI_ENABLED = Boolean(process.env.GEMINI_API_KEY);
 const MODEL = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
 const bad = (status, message) => Object.assign(new Error(message), { status });
 const str = (value, max=255) => typeof value === 'string' ? value.trim().slice(0,max) : '';
-function company() {
-  const configPath=fsSync.existsSync(path.join(DATA,'empresa.json')) ? path.join(DATA,'empresa.json') : path.join(ROOT,'empresa.json');
-  const cfg = JSON.parse(fsSync.readFileSync(configPath, 'utf8'));
+// cfg: configuração vinda da camada de dados. Sem ela, usa o arquivo (dados locais ou o exemplo do projeto).
+function company(cfg) {
+  if (!cfg) {
+    const configPath=fsSync.existsSync(path.join(DATA,'empresa.json')) ? path.join(DATA,'empresa.json') : path.join(ROOT,'empresa.json');
+    cfg = JSON.parse(fsSync.readFileSync(configPath, 'utf8'));
+  }
   return { name:str(cfg.name,90), assistantName:str(cfg.assistantName,90), serviceArea:str(cfg.serviceArea,250), services:Array.isArray(cfg.services)?cfg.services.slice(0,20).map(s=>str(s,90)).filter(Boolean):[], policy:str(cfg.policy,700), contact:str(cfg.contact,400), welcome:str(cfg.welcome,700) };
 }
 function normalize(text) { return text.normalize('NFD').replace(/[̀-ͯ]/g,'').toLowerCase(); }

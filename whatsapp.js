@@ -116,8 +116,8 @@ function createSecurityAlerts(config, {env=process.env, send=graphSendPayload, n
   }
   return {record,flush,enabled:true};
 }
-async function defaultAnswer(text, history) {
-  const c = company();
+async function defaultAnswer(text, history, cfg) {
+  const c = company(cfg);
   if (!AI_ENABLED) return demoAnswer(text, c);
   try { return await aiAnswer(text, history, c, 'whatsapp'); }
   catch { return 'Desculpe, não consegui responder agora. Pode tentar de novo em instantes?'; }
@@ -162,7 +162,9 @@ function createWebhook(config, { send=(to,text)=>graphSend(config,to,text), answ
     if (!isAllowed(from, config.allowed)) { log.log(`Ignorada: ${mask(from)} fora de WHATSAPP_ALLOWED_NUMBERS.`); return; }
     if (!withinLimit(from)) { log.log(`Limite de mensagens atingido: ${mask(from)}.`); return; }
     const text = msg.type === 'text' ? str(msg.text?.body, 1000) : '';
-    const conversa = await conversas.entrada({from, nome:str(nome, 80), texto:text || `[${str(msg.type,20) || 'mensagem'} recebida]`});
+    const conversa = await conversas.entrada({from, nome:str(nome, 80), texto:text || `[${str(msg.type,20) || 'mensagem'} recebida]`, idMeta:str(msg.id,200)});
+    // Reenvio da Meta já registrado (inclusive antes de um reinício): não responde de novo.
+    if (conversa?.duplicada) return;
     // Com um atendente na conversa, o robô só registra: quem responde é a pessoa.
     if (conversa?.modo === 'humano') { log.log(`Com atendente: ${mask(from)}.`); return; }
     if (msg.type !== 'text') { await reply(from, 'Por enquanto consigo ler apenas mensagens de texto. Pode escrever sua dúvida?'); return; }
@@ -225,4 +227,4 @@ function createWebhook(config, { send=(to,text)=>graphSend(config,to,text), answ
   return server;
 }
 
-module.exports = { createWebhook, loadConfig, graphSend, createSecurityAlerts, validSignature, isAllowed, mask, ROUTE, HOST };
+module.exports = { createWebhook, defaultAnswer, loadConfig, graphSend, createSecurityAlerts, validSignature, isAllowed, mask, ROUTE, HOST };
