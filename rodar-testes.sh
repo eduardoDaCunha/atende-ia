@@ -17,6 +17,6 @@ for t in $suites; do
 done
 if [ "$1" = "--postgres" ]; then
   # Remove os bancos temporários criados pelos testes.
-  node -e "const {Client}=require('pg');(async()=>{const c=new Client({connectionString:process.env.TESTE_PG_DONO});await c.connect();for(const r of (await c.query(\"SELECT datname FROM pg_database WHERE datname LIKE 'atende\\_t\\_%'\")).rows)await c.query('DROP DATABASE '+r.datname+' WITH (FORCE)');await c.end();})()" 2>/dev/null
+  node -e "const {Client}=require('pg');(async()=>{const c=new Client({connectionString:process.env.TESTE_PG_DONO});await c.connect();for(const r of (await c.query(\"SELECT datname FROM pg_database WHERE starts_with(datname, 'atende_t_')\")).rows)await c.query('DROP DATABASE '+r.datname+' WITH (FORCE)');await c.end();})()" 2>/dev/null
 fi
 echo "falhas: $falhas"; exit $falhas

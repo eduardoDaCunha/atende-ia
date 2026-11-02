@@ -37,7 +37,7 @@
         { id: 'empresas', titulo: 'Empresas', texto: 'Planos, assinaturas e vencimentos', icone: 'empresas', mostrar: ['#companies-list', '#companies-feedback'] },
         { id: 'usuarios', titulo: 'Usuários', texto: 'Perfis, bloqueios e senhas', icone: 'usuarios', mostrar: ['#users-list', '#users-list + p', '#generated-password', '#users-feedback'] },
         { id: 'agente', titulo: 'Agente', texto: 'Nome, serviços e regras de resposta', icone: 'agente', mostrar: ['#config-form'],
-          etapas: { form: '#config-form', passos: [{ nome: 'Identidade', campos: ['name', 'assistantName', 'serviceArea'] }, { nome: 'Serviços e regras', campos: ['services', 'policy'] }, { nome: 'Mensagens', campos: ['contact', 'welcome'] }] } }
+          etapas: { form: '#config-form', passos: [{ nome: 'Identidade', campos: ['companyId', 'name', 'assistantName', 'serviceArea'] }, { nome: 'Serviços e regras', campos: ['services', 'policy'] }, { nome: 'Mensagens', campos: ['contact', 'welcome'] }] } }
       ] },
       { grupo: 'Sistema', itens: [
         { id: 'seguranca', titulo: 'Segurança', texto: 'Tentativas de login e bloqueios', icone: 'seguranca', mostrar: ['#security-panel'] },

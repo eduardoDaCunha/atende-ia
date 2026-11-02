@@ -1,0 +1,15 @@
+{
+  "name": "atende-ia",
+  "version": "0.4.0",
+  "private": true,
+  "description": "Atende.IA: atendimento com IA para pequenas empresas",
+  "main": "server.js",
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "start": "node server.js",
+    "test": "bash rodar-testes.sh"
+  },
+  "dependencies": {
+    "pg": "^8.13.0"
+  }
+}
