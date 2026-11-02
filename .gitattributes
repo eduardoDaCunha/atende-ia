@@ -1,0 +1,3 @@
+# Scripts do Windows precisam de CRLF; scripts do Linux, de LF.
+*.bat text eol=crlf
+*.sh text eol=lf
