@@ -370,9 +370,10 @@ async function initAdmin(){
     e.preventDefault();const data=fieldData(e.currentTarget);data.services=data.services.split('\n').map(x=>x.trim()).filter(Boolean);
     const password=await verifyAdmin('Alterar os dados da empresa');if(!password)return;
     data.confirmed=true;
-    try{await api('/api/admin/config','PUT',data);feedback('#config-feedback','Configuração salva. Reabra a página pública para ver o novo conteúdo.',true);}
+    try{await api('/api/admin/config','PUT',data);feedback('#config-feedback',data.companyId?'Configuração da empresa salva. Vale para as próximas mensagens do WhatsApp dela.':'Configuração salva. Reabra a página pública para ver o novo conteúdo.',true);await loadConfig();}
     catch(err){feedback('#config-feedback',err.message);}
   });
+  $('#config-company').addEventListener('change',()=>{feedback('#config-feedback','');loadConfig().catch(err=>feedback('#config-feedback',err.message));});
   $('#refresh-audit').addEventListener('click',loadAudit);
   $('#refresh-security').addEventListener('click',loadSecurity);
   await Promise.all([window.initAtendeCompanies?.()||Promise.resolve(),loadConfig(),loadAudit(),loadHealth(),loadSecurity()]);
@@ -416,9 +417,19 @@ async function loadUsers(){
     row.append(left,controls);container.append(row);
   });
 }
+// Cada empresa tem o próprio agente (usado no WhatsApp dela); sem empresa, é o agente do site público.
 async function loadConfig(){
-  const {config}=await api('/api/admin/config');const form=$('#config-form');
+  const select=$('#config-company'),escolhida=select.value;
+  const {items}=await api('/api/admin/companies');
+  select.replaceChildren(Object.assign(document.createElement('option'),{value:'',textContent:'Site público da Atende.IA'}));
+  items.forEach(c=>select.append(Object.assign(document.createElement('option'),{value:c.id,textContent:c.name})));
+  select.value=items.some(c=>c.id===escolhida)?escolhida:'';
+  const consulta=select.value?'?empresa='+encodeURIComponent(select.value):'';
+  const {config,propria}=await api('/api/admin/config'+consulta);const form=$('#config-form');
   Object.entries(config).forEach(([key,value])=>{const field=form.elements.namedItem(key);if(field)field.value=Array.isArray(value)?value.join('\n'):value;});
+  $('#config-origin').textContent=select.value
+    ?(propria?'Esta empresa tem configuração própria.':'Esta empresa ainda usa a configuração do site. Ao salvar, ela passa a ter a própria.')
+    :'Usada no chat do site e pelas empresas sem configuração própria.';
 }
 async function loadAudit(){
   const {items}=await api('/api/admin/audit'),container=$('#audit');container.replaceChildren();

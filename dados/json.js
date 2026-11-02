@@ -13,7 +13,7 @@ const { read, update, DATA } = require('../store');
 const ARQ = {
   usuarios: 'usuarios.json', empresas: 'empresas.json', solicitacoes: 'solicitacoes.json',
   conversas: 'conversas-whatsapp.json', auditoria: 'auditoria.json', tentativas: 'tentativas-login.json',
-  orcamento: 'leads-demonstracao.json', comercial: 'interesses-comerciais-teste.json',
+  orcamento: 'leads-demonstracao.json', comercial: 'interesses-comerciais-teste.json', configuracoes: 'configuracoes-agente.json',
 };
 const MAX_AUDITORIA = 1500, MAX_TENTATIVAS = 700, MAX_MENSAGENS_WPP = 300, MAX_CONVERSAS = 2000;
 const agora = () => new Date().toISOString();
@@ -133,12 +133,14 @@ function criar() {
     },
 
     configuracoes: {
-      /** Configuração do agente. Neste motor existe só uma, para a instalação inteira. */
-      async obter() {
+      /** empresaId null = site público (empresa.json, como sempre). Empresas: configuracoes-agente.json. */
+      async obter(empresaId = null) {
+        if (empresaId) return (await read(ARQ.configuracoes, {}))[empresaId] || null;
         try { return JSON.parse(await fs.readFile(path.join(DATA, 'empresa.json'), 'utf8')); }
         catch (e) { if (e.code === 'ENOENT') return null; throw e; }
       },
-      async salvar(_empresaId, cfg) {
+      async salvar(empresaId, cfg) {
+        if (empresaId) return update(ARQ.configuracoes, mapa => { mapa[empresaId] = cfg; }, {});
         await fs.mkdir(DATA, { recursive: true });
         const alvo = path.join(DATA, 'empresa.json'), temp = alvo + '.tmp';
         await fs.writeFile(temp, JSON.stringify(cfg, null, 2), { mode: 0o600 });

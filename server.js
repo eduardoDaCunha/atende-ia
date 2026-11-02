@@ -358,7 +358,15 @@ const server=http.createServer(async (req,res)=>{
         const last24=events.filter(e=>Date.parse(e.at)>=since);
         return json(res,200,{blocked,events:events.slice(-100).reverse(),summary:{locked:blocked.length,failed:last24.filter(e=>e.result==='falha').length,blockedAttempts:last24.filter(e=>e.result==='bloqueado').length,successful:last24.filter(e=>e.result==='sucesso').length}});
       }
-      if (pathname==='/api/admin/config') { allow(s,['admin']);return json(res,200,{config:await configAgente(null)}); }
+      // ?empresa=<id>: configuração do agente daquela empresa (WhatsApp). Sem empresa: a do site público.
+      // Empresa sem configuração própria recebe a do site como ponto de partida (propria:false).
+      if (pathname==='/api/admin/config') {
+        allow(s,['admin']);
+        const empresaId=str(url.searchParams.get('empresa'),36)||null;
+        if(empresaId&&!await companyExists(empresaId)) throw bad(404,'Empresa não encontrada.');
+        const propria=empresaId?await D.configuracoes.obter(empresaId):null;
+        return json(res,200,{config:propria?company(propria):await configAgente(null),propria:Boolean(propria)||!empresaId,companyId:empresaId});
+      }
       if (pathname==='/api/ferramentas') { allow(s,['admin','atendimento','cliente']);return json(res,200,{items:ferramentas.listar(contextoFerramenta(s))}); }
       // Diagnóstico somente leitura; sem conexões externas (essas exigem POST abaixo).
       if (pathname==='/api/admin/diagnostico') { allow(s,['admin']);return json(res,200,(await ferramentas.executar('diagnostico',{},contextoFerramenta(s))).resultado); }
@@ -596,8 +604,10 @@ const server=http.createServer(async (req,res)=>{
       if(input.confirmed!==true)throw bad(400,'Confirme a ação para continuar.');
       const cfg={name:str(input.name,90),assistantName:str(input.assistantName,90),serviceArea:str(input.serviceArea,250),services:Array.isArray(input.services)?input.services.slice(0,20).map(s=>str(s,90)).filter(Boolean):[],policy:str(input.policy,700),contact:str(input.contact,400),welcome:str(input.welcome,700)};
       if(!cfg.name||!cfg.assistantName||!cfg.services.length)throw bad(400,'Informe nome, assistente e ao menos um serviço.');
-      await D.configuracoes.salvar(null,cfg);
-      await audit('config_alterada',admin.username,'Dados da empresa');return json(res,200,{ok:true,config:cfg});
+      const empresaId=str(input.companyId,36)||null;
+      if(empresaId&&!await companyExists(empresaId)) throw bad(400,'Empresa não cadastrada.');
+      await D.configuracoes.salvar(empresaId,cfg);
+      await audit('config_alterada',admin.username,empresaId?'Agente da empresa '+empresaId:'Agente do site');return json(res,200,{ok:true,config:cfg,companyId:empresaId});
     }
     throw bad(404,'Rota não encontrada.');
   } catch(err) {
