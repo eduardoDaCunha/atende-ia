@@ -1,0 +1,16 @@
+# Nada de dados, segredos ou histórico dentro da imagem.
+.git
+node_modules
+data
+data-importacao-*
+backups
+*.bak
+*.backup
+.env
+.env.*
+config-local.bat
+*.pem
+*.key
+tests
+*.bat
+_transferencia

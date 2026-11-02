@@ -1,0 +1,24 @@
+# Atende.IA — proxy HTTPS. O Caddy obtém e renova o certificado sozinho (Let's Encrypt).
+# DOMINIO vem do arquivo .env (ex.: atendeia.com.br).
+{$DOMINIO} {
+	encode zstd gzip
+
+	# HSTS: o navegador passa a usar só HTTPS neste domínio.
+	header Strict-Transport-Security "max-age=31536000; includeSubDomains"
+	header -Server
+
+	# Webhook da Meta: porta própria (3012), exposta só nesta rota.
+	handle /webhook/whatsapp {
+		reverse_proxy 127.0.0.1:3012
+	}
+	# Site e painel (3011). O Caddy substitui o X-Forwarded-For pelo IP real do visitante.
+	handle {
+		reverse_proxy 127.0.0.1:3011
+	}
+	# Sem log de acessos: evita guardar IPs e o token de verificação da Meta (vai na URL).
+}
+
+# Endereços com www redirecionam para o domínio principal.
+www.{$DOMINIO} {
+	redir https://{$DOMINIO}{uri} permanent
+}

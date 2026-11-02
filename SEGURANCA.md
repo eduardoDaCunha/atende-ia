@@ -1,6 +1,6 @@
 # Segurança: proteção inicial contra excesso de requisições
 
-O protótipo continua local/privado. Estas mudanças não autorizam publicação e não garantem resistência a DDoS ou ausência de vulnerabilidades.
+Estas proteções não garantem resistência a DDoS nem ausência de vulnerabilidades. Para publicar, siga `implantacao/PASSO-A-PASSO.md`.
 
 ## Implementado no servidor do painel/site
 
@@ -17,14 +17,14 @@ Os contadores ficam na memória e reiniciam com o processo. Estas cotas não se 
 ## Próximas etapas antes de operação comercial
 
 - [ ] Proteção de borda: proxy/CDN com limitação de tráfego e mitigação DDoS; origem inacessível diretamente.
-- [ ] Definir proxies confiáveis e identidade do visitante sem aceitar IP falsificado.
+- [x] Definir proxies confiáveis e identidade do visitante sem aceitar IP falsificado (`ATENDE_PROXY_CONFIAVEL=1`, só conexões do próprio computador; teste `proxy-confiavel`).
 - [ ] Limites distribuídos por usuário/empresa/rota; orçamento de IA, limite simultâneo e interrupção por consumo.
 - [ ] Limitar fila de gravações, volume de registros, sessões e mensagens; retenção e paginação.
 - [ ] Revisar o webhook separadamente: conexões, fila de processamento, eventos assinados, repetição e consumo.
-- [ ] Migrar JSON para banco transacional com pool limitado, índices, cotas e tempo máximo de consultas.
+- [x] Migrar JSON para banco transacional com pool limitado, índices e tempo máximo de consultas (PostgreSQL, `dados/postgres.js`; cotas por empresa ainda pendentes).
 - [ ] Revisar autorização por empresa, XSS, CSRF, injeções, uploads e tratamento de segredos.
 - [ ] Monitoramento de recursos, erros, bloqueios e espaço em disco sem registrar conteúdo sensível.
-- [ ] Hospedagem isolada, autenticação reforçada, backups e restauração comprovada.
+- [ ] Hospedagem isolada, autenticação reforçada, backups e restauração comprovada. Feito: VM própria, container sem root e só leitura, backup diário com teste de leitura, restauração testada localmente. Falta: MFA e teste de restauração no servidor real.
 - [ ] Testes de concorrência, conexões lentas, carga e revisão de segurança em ambiente isolado.
 
 ## Verificação

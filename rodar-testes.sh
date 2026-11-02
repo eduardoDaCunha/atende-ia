@@ -4,7 +4,7 @@
 #   TESTE_PG_DONO=postgres://dono:senha@127.0.0.1:5432/postgres TESTE_PG_APP_SENHA=... bash rodar-testes.sh --postgres
 #                                    -> as mesmas suítes com o servidor no PostgreSQL (um banco por teste)
 cd "$(dirname "$0")"
-suites="smoke tailscale dados-permanentes atualizacoes-seguras whatsapp whatsapp-painel cidades agente-site diagnostico ferramentas mcp negocio protecao-requisicoes alertas-seguranca config-empresa postgres"
+suites="smoke tailscale dados-permanentes atualizacoes-seguras whatsapp whatsapp-painel cidades agente-site diagnostico ferramentas mcp negocio protecao-requisicoes alertas-seguranca config-empresa proxy-confiavel postgres"
 if [ "$1" = "--postgres" ]; then
   [ -n "$TESTE_PG_DONO" ] && [ -n "$TESTE_PG_APP_SENHA" ] || { echo "Defina TESTE_PG_DONO e TESTE_PG_APP_SENHA."; exit 2; }
   export NODE_OPTIONS="--import=file://$PWD/tests/preparar-pg.mjs"
@@ -17,6 +17,6 @@ for t in $suites; do
 done
 if [ "$1" = "--postgres" ]; then
   # Remove os bancos temporários criados pelos testes.
-  node -e "const {Client}=require('pg');(async()=>{const c=new Client({connectionString:process.env.TESTE_PG_DONO});await c.connect();for(const r of (await c.query(\"SELECT datname FROM pg_database WHERE datname LIKE 'atende_t_%'\")).rows)await c.query('DROP DATABASE '+r.datname+' WITH (FORCE)');await c.end();})()" 2>/dev/null
+  node -e "const {Client}=require('pg');(async()=>{const c=new Client({connectionString:process.env.TESTE_PG_DONO});await c.connect();for(const r of (await c.query(\"SELECT datname FROM pg_database WHERE datname LIKE 'atende\\_t\\_%'\")).rows)await c.query('DROP DATABASE '+r.datname+' WITH (FORCE)');await c.end();})()" 2>/dev/null
 fi
 echo "falhas: $falhas"; exit $falhas

@@ -1,6 +1,7 @@
 /data/
 .env
 .env.*
+!.env.exemplo
 node_modules/
 .DS_Store
 *.log
@@ -27,3 +28,6 @@ solicitacoes.json
 sessoes*.json
 *.sqlite
 *.db
+
+# Backups do servidor
+implantacao/backups/

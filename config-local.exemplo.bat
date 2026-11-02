@@ -31,3 +31,9 @@ set "SECURITY_WHATSAPP_TO="
 REM Modelo aprovado, corpo com um parametro de texto {{1}} para o resumo.
 set "SECURITY_WHATSAPP_TEMPLATE="
 set "SECURITY_WHATSAPP_LANGUAGE=pt_BR"
+
+REM ---- Banco de dados (opcional no Windows) ----
+REM Padrao: arquivos JSON na pasta de dados permanentes. Para testar com PostgreSQL
+REM (ex.: o banco de teste do atende-ia-dados, porta 55432), rode "npm.cmd install" e preencha:
+REM set "ATENDE_BANCO=postgres"
+REM set "DATABASE_URL=postgres://atende_app:SENHA@127.0.0.1:55432/atende_teste"

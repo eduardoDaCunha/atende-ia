@@ -217,8 +217,8 @@ const server=http.createServer(async (req,res)=>{
   res.once('close',release);
   try {
     // Aplicar ANTES de autenticar, ler arquivos, interpretar JSON ou chamar IA.
-    // Não confiar em X-Forwarded-For: o protótipo só conhece o par TCP.
-    const peer=req.socket.remoteAddress||'unknown';
+    // Atrás do Caddy local (ATENDE_PROXY_CONFIAVEL=1), o IP vem do X-Forwarded-For; sem isso, do par TCP.
+    const peer=visitante(req);
     if(!throttle('global:requests',1200) || !throttle(`${peer}:requests`,600)) {
       securityAlerts.record('rate_limit');
       res.setHeader('Retry-After','60');

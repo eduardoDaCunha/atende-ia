@@ -1,7 +1,12 @@
 'use strict';
 const readline = require('node:readline/promises');
 const crypto = require('node:crypto');
-const { read, update } = require('./store');
+// No servidor (ATENDE_BANCO=postgres) grava no banco; no Windows, nos arquivos JSON.
+const NO_BANCO = String(process.env.ATENDE_BANCO || '').toLowerCase() === 'postgres';
+const camada = NO_BANCO ? require('./dados').dados() : null;
+const { read: lerJson, update: gravarJson } = require('./store');
+const read = name => (NO_BANCO ? camada.usuarios.listar() : lerJson(name));
+const update = (name, mudar) => (NO_BANCO ? camada.usuarios.atualizarLista(mudar) : gravarJson(name, mudar));
 const { hashPassword, generatePassword, USERFILE } = require('./auth');
 (async () => {
   const existing = await read(USERFILE);
@@ -22,5 +27,5 @@ const { hashPassword, generatePassword, USERFILE } = require('./auth');
     console.log('Usuário: ' + username);
     console.log('Senha provisória: ' + password);
     console.log('Troque a senha no primeiro acesso. Ela não será exibida novamente.');
-  } finally { rl.close(); }
+  } finally { rl.close(); if (camada) await camada.encerrar(); }
 })().catch(err => { console.error('Erro:', err.message); process.exitCode = 1; });

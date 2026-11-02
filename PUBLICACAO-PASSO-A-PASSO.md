@@ -8,7 +8,11 @@
 5. Inspecione a página em larguras 320, 360, 390, 768 e 1280 px. Teste Tab, Enter, Esc, contraste, zoom 200% e reduzir movimento.
 6. Rode `node tests/smoke.js` e confira autenticação e permissões.
 
-## Publicação — ainda bloqueada, requer mudanças adicionais
+## Publicação
+
+O roteiro técnico está em `implantacao/PASSO-A-PASSO.md` (VM, domínio, HTTPS, banco, backup). Itens abaixo: o que já foi resolvido e o que ainda depende de decisão.
+
+### Checklist
 - Registrar domínio e escolher servidor/hospedagem compatível com Node.js 22+ e persistência confiável.
 - Revisar autenticação, cookies com Secure em HTTPS, sessões persistentes, banco de dados, backup, MFA, monitoramento, segurança da API e isolamento entre empresas.
 - Colocar reverse proxy com certificado TLS gerenciado, redirecionar HTTP para HTTPS e habilitar HSTS após validar HTTPS corretamente.

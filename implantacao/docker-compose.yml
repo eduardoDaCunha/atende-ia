@@ -1,0 +1,65 @@
+# Atende.IA — produção numa única VM (ex.: Oracle Cloud Always Free, Ubuntu ARM).
+# Uso (dentro da pasta implantacao/):  docker compose up -d
+# Passo a passo completo: implantacao/PASSO-A-PASSO.md
+#
+# Rede: o servidor continua escutando só em 127.0.0.1 (regra do projeto). Por isso app e Caddy
+# usam a rede da própria VM (network_mode: host) e o Caddy é o ÚNICO serviço aberto para fora
+# (portas 80 e 443). O PostgreSQL fica preso ao 127.0.0.1 da VM.
+name: atende
+
+services:
+  postgres:
+    image: postgres:17
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?defina POSTGRES_PASSWORD no .env}
+      POSTGRES_DB: atende
+      POSTGRES_INITDB_ARGS: "--auth-host=scram-sha-256"
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - banco:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d atende -h 127.0.0.1"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+    shm_size: 128mb
+
+  app:
+    build: ..
+    image: atende-ia:atual
+    restart: unless-stopped
+    network_mode: host
+    env_file: .env
+    environment:
+      ATENDE_BANCO: postgres
+      ATENDE_PROXY_CONFIAVEL: "1"
+      PORT: "3011"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    network_mode: host
+    environment:
+      DOMINIO: ${DOMINIO:?defina DOMINIO no .env}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_dados:/data
+      - caddy_config:/config
+    depends_on:
+      - app
+
+volumes:
+  banco:
+  caddy_dados:
+  caddy_config:
