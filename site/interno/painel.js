@@ -84,7 +84,7 @@ async function api(path,method='GET',payload=null){
   if(method!=='GET'&&session?.csrf)opts.headers['X-CSRF-Token']=session.csrf;
   const resp=await fetch(path,opts);let data;
   try{data=await resp.json();}catch{throw Error('Resposta inválida do servidor.');}
-  if(!resp.ok)throw Error(data.error||'Erro na solicitação.');
+  if(!resp.ok)throw Object.assign(Error(data.error||'Erro na solicitação.'),{status:resp.status});
   return data;
 }
 async function init(){
@@ -125,7 +125,15 @@ async function init(){
 // "Voltar ao login" cancela a sessão provisória NO SERVIDOR, não apenas oculta campos.
 function initLogin(){
   const loginForm=$('#login-form'),changeForm=$('#change-form');
+  const blocked=$('#login-blocked'),blockedImage=$('#login-blocked-image');
+  function displayBlocked(visible){
+    if(visible && !blockedImage.getAttribute('src'))blockedImage.src='/login-bloqueado-meme.png';
+    show(blocked,visible);
+  }
+  // Se a imagem falhar, a mensagem de bloqueio continua disponível em texto.
+  blockedImage.addEventListener('error',()=>show(blockedImage,false));
   function displayLogin(message='',success=false){
+    displayBlocked(false);
     loginForm.reset();changeForm.reset();hidePasswords();
     show(changeForm,false);show(loginForm,true);
     feedback('#notice',message,success);
@@ -134,7 +142,7 @@ function initLogin(){
   loginForm.addEventListener('submit',async e=>{
     e.preventDefault();const btn=loginForm.querySelector('button[type="submit"]');
     if(!btn){feedback('#notice','Não foi possível localizar o botão de entrada. Atualize a página.');return;}
-    btn.disabled=true;feedback('#notice','Verificando acesso...');
+    btn.disabled=true;displayBlocked(false);feedback('#notice','Verificando acesso...');
     try{
       session=await api('/api/auth/login','POST',fieldData(loginForm));
       if(session.user.mustChangePassword){
@@ -142,7 +150,7 @@ function initLogin(){
         show(loginForm,false);show(changeForm,true);
         feedback('#notice','Por segurança, troque a senha provisória. Se preferir, volte ao login para trocar de usuário.');
       }else location.replace(linkFor(session.user.role));
-    }catch(err){feedback('#notice',err.message);}finally{btn.disabled=false;}
+    }catch(err){displayBlocked(err.status===429);feedback('#notice',err.message);}finally{btn.disabled=false;}
   });
   // Permite sair do primeiro acesso, mesmo se o usuário esqueceu a senha provisória.
   $('#back-to-login').addEventListener('click',async e=>{
@@ -335,21 +343,21 @@ async function chatAction(action){
     feedback('#wpp-feedback',action==='assumir'?'Você assumiu a conversa: o robô parou de responder este cliente.':'Conversa devolvida ao robô.',true);}
   catch(err){feedback('#wpp-feedback',err.message);}
 }
-// Reautenticação visual com campo password: nunca usa window.prompt (texto visível).
+// Confirmação da ação; autenticação e permissões são verificadas pelo servidor.
 function verifyAdmin(action){
-  const dialog=$('#admin-verify-dialog'),form=$('#admin-verify-form'),input=$('#admin-verify-password');
-  $('#admin-verify-description').textContent=`Confirme sua senha para: ${action}.`;
+  const dialog=$('#admin-verify-dialog'),form=$('#admin-verify-form');
+  $('#admin-verify-description').textContent=`Deseja confirmar esta ação: ${action}?`;
   form.reset();hidePasswords();
   return new Promise(resolve=>{
     let finished=false;
     const detach=()=>{form.removeEventListener('submit',submit);dialog.removeEventListener('close',closed);};
-    const finish=value=>{if(finished)return;finished=true;detach();dialog.close();input.value='';hidePasswords();resolve(value);};
-    const submit=e=>{e.preventDefault();finish(input.value||null);};
-    const closed=()=>{if(finished)return;finished=true;detach();input.value='';resolve(null);};
+    const finish=value=>{if(finished)return;finished=true;detach();dialog.close();resolve(value);};
+    const submit=e=>{e.preventDefault();finish(true);};
+    const closed=()=>{if(finished)return;finished=true;detach();resolve(false);};
     form.addEventListener('submit',submit);dialog.addEventListener('close',closed);
     // Cancelar resolve direto; o evento close cobre a tecla Esc.
     $('#admin-verify-cancel').onclick=()=>finish(null);
-    dialog.showModal();input.focus();
+    dialog.showModal();$('#admin-verify-cancel').focus();
   });
 }
 async function initAdmin(){
@@ -361,7 +369,7 @@ async function initAdmin(){
   $('#config-form').addEventListener('submit',async e=>{
     e.preventDefault();const data=fieldData(e.currentTarget);data.services=data.services.split('\n').map(x=>x.trim()).filter(Boolean);
     const password=await verifyAdmin('Alterar os dados da empresa');if(!password)return;
-    data.currentPassword=password;
+    data.confirmed=true;
     try{await api('/api/admin/config','PUT',data);feedback('#config-feedback','Configuração salva. Reabra a página pública para ver o novo conteúdo.',true);}
     catch(err){feedback('#config-feedback',err.message);}
   });
@@ -379,7 +387,7 @@ function showTemporary(password,username){
 async function adminAction(user,action,payload){
   const currentPassword=await verifyAdmin(`${action==='reset'?'Redefinir senha de':action==='status'?'Alterar acesso de':'Alterar perfil de'} ${user.username}`);
   if(!currentPassword)return false;
-  try{const data=await api(`/api/admin/users/${user.id}/${action}`,'POST',{currentPassword,...payload});
+  try{const data=await api(`/api/admin/users/${user.id}/${action}`,'POST',{confirmed:true,...payload});
     if(data.temporaryPassword){showTemporary(data.temporaryPassword,user.username);$('#generated-password').scrollIntoView({behavior:'smooth',block:'center'});}
     feedback('#users-feedback','Alteração realizada.',true);await Promise.all([loadUsers(),loadSecurity(),loadAudit()]);return true;}
   catch(err){feedback('#users-feedback',err.message);return false;}
@@ -401,7 +409,7 @@ async function loadUsers(){
       companySelect.addEventListener('change',async()=>{
         const password=await verifyAdmin(`Vincular ${u.username} à empresa selecionada`);
         if(!password){companySelect.value=u.companyId||'';return;}
-        try{await api(`/api/admin/users/${u.id}/company`,'PUT',{companyId:companySelect.value,currentPassword:password});await loadUsers();feedback('#users-feedback','Empresa vinculada. Sessões anteriores encerradas.',true);}
+        try{await api(`/api/admin/users/${u.id}/company`,'PUT',{companyId:companySelect.value,confirmed:true});await loadUsers();feedback('#users-feedback','Empresa vinculada. Sessões anteriores encerradas.',true);}
         catch(err){feedback('#users-feedback',err.message);companySelect.value=u.companyId||'';}
       });controls.append(companySelect);
     }
@@ -447,7 +455,7 @@ async function loadSecurity(){
 async function unlockAccount(username){
   const currentPassword=await verifyAdmin(`Desbloquear a conta ${username}`);if(!currentPassword)return;
   try{
-    const value=await api('/api/admin/security/unlock','POST',{username,currentPassword});
+    const value=await api('/api/admin/security/unlock','POST',{username,confirmed:true});
     feedback('#security-feedback',value.unlocked?`Conta ${username} liberada. O usuário já pode tentar novamente.`:`A conta ${username} já estava liberada.`,true);
     await Promise.all([loadSecurity(),loadAudit()]);
   }catch(err){feedback('#security-feedback',err.message);}

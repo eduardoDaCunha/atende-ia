@@ -67,12 +67,15 @@ function isAllowed(from, allowed) {
 const mask = number => '***' + String(number).slice(-4);
 
 async function graphSend(config, to, text) {
+  return graphSendPayload(config,{messaging_product:'whatsapp', recipient_type:'individual', to, type:'text', text:{preview_url:false, body:text}});
+}
+async function graphSendPayload(config, payload) {
   const controller = new AbortController(); const timer = setTimeout(()=>controller.abort(), 15_000);
   try {
     const response = await fetch(`${config.graphBase}/${config.graphVersion}/${config.phoneNumberId}/messages`, {
       method:'POST', signal:controller.signal,
       headers:{'Content-Type':'application/json', Authorization:`Bearer ${config.token}`},
-      body:JSON.stringify({messaging_product:'whatsapp', recipient_type:'individual', to, type:'text', text:{preview_url:false, body:text}}),
+      body:JSON.stringify(payload),
     });
     if (!response.ok) {
       const detail = await response.json().catch(()=>null);
@@ -80,9 +83,42 @@ async function graphSend(config, to, text) {
     }
   } finally { clearTimeout(timer); }
 }
+// Um único acumulador de categorias fixas: nenhuma fila por IP/URL controlável pelo visitante.
+// Alertas não persistem dados pessoais e nunca incluem requisições, senhas ou tokens.
+function createSecurityAlerts(config, {env=process.env, send=graphSendPayload, now=Date.now, log=console}={}) {
+  const enabled=env.SECURITY_WHATSAPP_ENABLED==='1';
+  const categories=['rate_limit','login_limit','overload','payload_limit'];
+  let counts={},pending=false,nextSend=0;
+  const empty=()=>Object.fromEntries(categories.map(k=>[k,0]));
+  counts=empty();
+  if(!enabled)return {record(){},flush:async()=>false,enabled:false};
+  const to=String(env.SECURITY_WHATSAPP_TO||'');
+  const template=String(env.SECURITY_WHATSAPP_TEMPLATE||'');
+  const language=String(env.SECURITY_WHATSAPP_LANGUAGE||'pt_BR');
+  if(!config || !/^55[1-9]\d9\d{8}$/.test(to) || !/^[a-z0-9_]{1,100}$/.test(template) || !/^[a-z]{2}(?:_[A-Z]{2})?$/.test(language)) {
+    throw new Error('Alertas WhatsApp: configure integração, destinatário celular brasileiro completo e modelo aprovado.');
+  }
+  function record(category){if(categories.includes(category))counts[category]=Math.min(counts[category]+1,1_000_000);}
+  async function flush(){
+    if(pending || now()<nextSend || Object.values(counts).reduce((a,b)=>a+b,0)<20)return false;
+    const snapshot=counts;counts=empty();pending=true;nextSend=now()+5*60_000;
+    const summary=`Atividade suspeita (não confirma invasão). Requisições limitadas: ${snapshot.rate_limit}; login limitado: ${snapshot.login_limit}; sobrecarga: ${snapshot.overload}; tamanho excessivo: ${snapshot.payload_limit}. Consulte o administrador.`;
+    try {
+      await send(config,{messaging_product:'whatsapp',to,type:'template',template:{name:template,language:{code:language},components:[{type:'body',parameters:[{type:'text',text:summary}]}]}});
+      // API aceitar não comprova entrega ao aparelho.
+      log.log('Alerta de segurança aceito pela API do WhatsApp.');
+      return true;
+    } catch {
+      for(const key of categories)counts[key]=Math.min(counts[key]+snapshot[key],1_000_000);
+      log.error('Falha ao enviar alerta de segurança; nova tentativa após o intervalo.');
+      return false;
+    } finally {pending=false;}
+  }
+  return {record,flush,enabled:true};
+}
 async function defaultAnswer(text, history) {
   const c = company();
-  if (!AI_ENABLED) return demoAnswer(text, c, 'whatsapp');
+  if (!AI_ENABLED) return demoAnswer(text, c);
   try { return await aiAnswer(text, history, c, 'whatsapp'); }
   catch { return 'Desculpe, não consegui responder agora. Pode tentar de novo em instantes?'; }
 }
@@ -189,4 +225,4 @@ function createWebhook(config, { send=(to,text)=>graphSend(config,to,text), answ
   return server;
 }
 
-module.exports = { createWebhook, loadConfig, graphSend, validSignature, isAllowed, mask, ROUTE, HOST };
+module.exports = { createWebhook, loadConfig, graphSend, createSecurityAlerts, validSignature, isAllowed, mask, ROUTE, HOST };

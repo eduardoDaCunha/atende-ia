@@ -22,3 +22,12 @@ REM Sem ele, so administradores veem as conversas.
 set "WHATSAPP_EMPRESA_ID="
 REM Numeros que podem receber resposta durante o teste, com 55 e DDD, separados por virgula.
 set "WHATSAPP_ALLOWED_NUMBERS="
+
+REM --- Alertas de seguranca (opcionais). So ative apos aprovar um modelo na Meta.
+REM Destinatario: celular brasileiro, somente digitos, com 55 + DDD + 9 digitos.
+REM Nunca coloque dados reais neste arquivo de exemplo versionado.
+set "SECURITY_WHATSAPP_ENABLED=0"
+set "SECURITY_WHATSAPP_TO="
+REM Modelo aprovado, corpo com um parametro de texto {{1}} para o resumo.
+set "SECURITY_WHATSAPP_TEMPLATE="
+set "SECURITY_WHATSAPP_LANGUAGE=pt_BR"

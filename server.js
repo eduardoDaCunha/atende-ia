@@ -10,11 +10,12 @@ const crypto = require('node:crypto');
 const zlib = require('node:zlib');
 const { read, update, ROOT, DATA, acquireServerLock } = require('./store');
 const auth = require('./auth');
-const { AI_ENABLED, MODEL, bad, str, company, normalize, demoAnswer, aiAnswer } = require('./resposta');
+const { AI_ENABLED, MODEL, bad, str, company, normalize, siteAnswer, aiAnswer } = require('./resposta');
 const whatsapp = require('./whatsapp');
 const conversas = require('./conversas');
 // null quando o WhatsApp não foi configurado; configuração pela metade impede a partida.
 const WPP = whatsapp.loadConfig(process.env);
+const securityAlerts=whatsapp.createSecurityAlerts(WPP);
 
 const SITE_PUBLICO = path.join(ROOT, 'site', 'publico');
 const SITE_INTERNO = path.join(ROOT, 'site', 'interno');
@@ -30,6 +31,8 @@ const SITE_ORIGIN = (()=>{
   return u.origin;
 })();
 const rate = new Map();
+let activeRequests = 0;
+const MAX_ACTIVE_REQUESTS = 32;
 // Apenas o hostname explicitamente configurado para Tailscale Serve e aceito.
 // NUNCA aceitar qualquer *.ts.net e nunca confiar em X-Forwarded-Host.
 const TAILSCALE_HOST = String(process.env.TAILSCALE_HOST || '').trim().toLowerCase();
@@ -80,9 +83,13 @@ async function body(req, max=16_000) {
 }
 function throttle(key, max=80, windowMs=60_000) {
   const now=Date.now(), entry=rate.get(key);
-  const value=entry && now-entry.at<windowMs ? {at:entry.at, count:entry.count+1} : {at:now,count:1};
+  // Não permitir crescimento ilimitado nem descartar bloqueios ainda ativos.
+  if (!entry && rate.size>=4096) {
+    for (const [k,v] of rate) if(now>=v.expires) rate.delete(k);
+    if(rate.size>=4096)return false;
+  }
+  const value=entry && now<entry.expires ? {...entry, count:Math.min(entry.count+1,max+1)} : {at:now,expires:now+windowMs,count:1};
   rate.set(key,value);
-  if (rate.size>1000) for (const [k,v] of rate) if(now-v.at>windowMs) rate.delete(k);
   return value.count<=max;
 }
 function csrf(req, session) { if (!session || req.headers['x-csrf-token']!==session.csrf) throw bad(403,'Token de segurança inválido. Atualize a página.'); }
@@ -155,20 +162,29 @@ const assets={
   '/':['publico','index.html','text/html; charset=utf-8'],
   '/index.html':['publico','index.html','text/html; charset=utf-8'],
   '/favicon.webp':['publico','favicon.webp','image/webp'],
+  '/login-bloqueado-meme.png':['publico','login-bloqueado-meme.png','image/png'],
   '/privacidade':['publico','privacidade.html','text/html; charset=utf-8'],
   '/termos':['publico','termos.html','text/html; charset=utf-8'],
   '/style.css':['publico','style.css','text/css; charset=utf-8'],
   '/app.js':['publico','app.js','text/javascript; charset=utf-8'],
+  '/geist.woff2':['publico','geist.woff2','font/woff2'],
+  '/tema.js':['publico','tema.js','text/javascript; charset=utf-8'],
+  '/tema.css':['publico','tema.css','text/css; charset=utf-8'],
+  '/tema-painel.css':['interno','tema-painel.css','text/css; charset=utf-8'],
   '/painel.css':['interno','painel.css','text/css; charset=utf-8'],
   '/painel.js':['interno','painel.js','text/javascript; charset=utf-8'],
+  '/navegacao.js':['interno','navegacao.js','text/javascript; charset=utf-8'],
+  '/navegacao.css':['interno','navegacao.css','text/css; charset=utf-8'],
   '/empresas.js':['interno','empresas.js','text/javascript; charset=utf-8'],
+  '/cidades.js':['interno','cidades.js','text/javascript; charset=utf-8'],
+  '/municipios.json':['interno','municipios.json','application/json; charset=utf-8'],
   '/acesso':['interno','acesso.html','text/html; charset=utf-8'],
   '/cliente':['interno','cliente.html','text/html; charset=utf-8'],
   '/atendimento':['interno','atendimento.html','text/html; charset=utf-8'],
   '/admin':['interno','admin.html','text/html; charset=utf-8']
 };
 function requirePage(pathname, s) {
-  if(pathname==='/empresas.js') return s && s.user.role==='admin' && !s.user.mustChangePassword;
+  if(['/empresas.js','/cidades.js','/municipios.json'].includes(pathname)) return s && s.user.role==='admin' && !s.user.mustChangePassword;
   if(pathname==='/cliente') return s && s.user.role==='cliente' && !s.user.mustChangePassword;
   if(pathname==='/atendimento') return s && ['atendimento','admin'].includes(s.user.role) && !s.user.mustChangePassword;
   if(pathname==='/admin') return s && s.user.role==='admin' && !s.user.mustChangePassword;
@@ -176,10 +192,41 @@ function requirePage(pathname, s) {
 }
 const server=http.createServer(async (req,res)=>{
   securityHeaders(res);
+  let admitted=false;
+  const release=()=>{if(admitted){admitted=false;activeRequests--;}};
+  res.once('finish',release);
+  res.once('close',release);
   try {
+    // Aplicar ANTES de autenticar, ler arquivos, interpretar JSON ou chamar IA.
+    // Não confiar em X-Forwarded-For: o protótipo só conhece o par TCP.
+    const peer=req.socket.remoteAddress||'unknown';
+    if(!throttle('global:requests',1200) || !throttle(`${peer}:requests`,600)) {
+      securityAlerts.record('rate_limit');
+      res.setHeader('Retry-After','60');
+      res.setHeader('Connection','close');
+      throw bad(429,'Muitas solicitações. Aguarde antes de tentar novamente.');
+    }
+    if(activeRequests>=MAX_ACTIVE_REQUESTS) {
+      securityAlerts.record('overload');
+      res.setHeader('Retry-After','5');
+      res.setHeader('Connection','close');
+      throw bad(503,'Servidor ocupado. Tente novamente em instantes.');
+    }
+    activeRequests++;admitted=true;
+    if(String(req.url||'').length>2048)throw bad(414,'Endereço muito grande.');
+    if(req.headers['content-length'] && Number(req.headers['content-length'])>16_000) {
+      securityAlerts.record('payload_limit');
+      res.setHeader('Connection','close');
+      throw bad(413,'Dados muito grandes.');
+    }
     const host=String(req.headers.host||'').toLowerCase();
     if (!ALLOWED_HOSTS.has(host)) throw bad(403,'Endereço de acesso não permitido.');
     const url=new URL(req.url,'http://localhost'); const pathname=url.pathname;
+    // Login e chat também têm limite próprio antes de acessar os dados.
+    if(req.method==='POST' && pathname==='/api/auth/login' && !throttle(`${peer}:login`,40,15*60_000)) {
+      securityAlerts.record('login_limit');
+      res.setHeader('Retry-After','900');throw bad(429,'Muitas tentativas de acesso.');
+    }
     const s=await auth.session(req);
     if ((req.method==='GET'||req.method==='HEAD') && pathname==='/robots.txt') {
       // Local: não indexar protótipo. Produção: indexar apenas conteúdo público.
@@ -205,7 +252,7 @@ const server=http.createServer(async (req,res)=>{
       if (staticPublic) { res.removeHeader('Pragma'); res.removeHeader('Expires'); }
       if (publicPage && SITE_ORIGIN) {
         const destination=SITE_ORIGIN+(pathname==='/index.html'?'/':pathname);
-        const jsonLd=JSON.stringify({'@context':'https://schema.org','@type':'SoftwareApplication',name:'Atende.IA',applicationCategory:'BusinessApplication',operatingSystem:'Web',url:SITE_ORIGIN+'/',description:'Demonstração de um sistema de atendimento automatizado para sites.'});
+        const jsonLd=JSON.stringify({'@context':'https://schema.org','@type':'SoftwareApplication',name:'Atende.IA',applicationCategory:'BusinessApplication',operatingSystem:'Web',url:SITE_ORIGIN+'/',description:'Automação com IA e sistemas sob medida para empresas.'});
         buffer=Buffer.from(buffer.toString('utf8').replace('</head>',`<link rel="canonical" href="${destination}"><meta property="og:url" content="${destination}">${pathname==='/'||pathname==='/index.html'?`<script type="application/ld+json">${jsonLd}</script>`:''}</head>`));
       }
       const etag=staticPublic?'W/"'+crypto.createHash('sha256').update(buffer).digest('hex').slice(0,24)+'"':null;
@@ -305,12 +352,12 @@ const server=http.createServer(async (req,res)=>{
     if (!ALLOWED_ORIGINS.has(req.headers.origin)) throw bad(403,'Origem não permitida.');
     if (!String(req.headers['content-type']||'').toLowerCase().startsWith('application/json')) throw bad(415,'Envie JSON.');
     if (!throttle(`${req.socket.remoteAddress}:all`,100)) throw bad(429,'Muitas solicitações.');
-    if (pathname==='/api/auth/login' && !throttle(`${req.socket.remoteAddress}:login`,40,15*60_000)) throw bad(429,'Muitas tentativas de acesso.');
     const input=await body(req);
     if (pathname==='/api/auth/login') {
       const username=str(input.username,30).toLowerCase(),password=input.password;
       if (!username || typeof password!=='string') throw bad(400,'Informe usuário e senha.');
       if (auth.locked(username)) {
+        securityAlerts.record('login_limit');
         await logLoginAttempt(username,'bloqueado','Conta temporariamente bloqueada por tentativas incorretas');
         await audit('login_bloqueado',username,'Tentativa durante bloqueio temporário');
         throw bad(429,'Muitas tentativas para esta conta. Tente novamente mais tarde.');
@@ -334,16 +381,18 @@ const server=http.createServer(async (req,res)=>{
       const msg=str(input.message,1000);
       if(!msg) throw bad(400,'Digite uma mensagem.');
       const history=Array.isArray(input.history)?input.history.filter(h=>h&&['user','assistant'].includes(h.role)&&typeof h.text==='string').slice(-8):[];
-      if(!AI_ENABLED) return json(res,200,{answer:demoAnswer(msg,company()),ai:false});
-      return json(res,200,{answer:await aiAnswer(msg,history,company()),ai:true});
+      if(!AI_ENABLED) return json(res,200,{answer:siteAnswer(msg),ai:false});
+      // Se o modelo falhar, a base própria do site responde: o visitante não vê erro.
+      try { return json(res,200,{answer:await aiAnswer(msg,history,company()),ai:true}); }
+      catch { return json(res,200,{answer:siteAnswer(msg),ai:false}); }
     }
     if(pathname==='/api/lead' || pathname==='/api/commercial-lead') {
-      if (!throttle(`${req.socket.remoteAddress}:lead`,15)) throw bad(429,'Limite de cadastros de teste.');
-      if(input.consent!==true) throw bad(400,'Confirme o uso de dados fictícios.');
+      if (!throttle(`${req.socket.remoteAddress}:lead`,15)) throw bad(429,'Muitos envios. Tente novamente mais tarde.');
+      if(input.consent!==true) throw bad(400,'Confirme a autorização para continuar.');
       const isQuote=pathname==='/api/lead';
       const data=isQuote?{name:str(input.name,90),phone:str(input.phone,30),city:str(input.city,90),service:str(input.service,150)}:{company:str(input.company,100),name:str(input.name,90),contact:str(input.contact,120),need:str(input.need,250)};
-      if(Object.values(data).some(v=>v.length<2)) throw bad(400,'Preencha os campos do teste.');
-      if(isQuote && !/^[+()\d\s-]{10,30}$/.test(data.phone)) throw bad(400,'Telefone de teste inválido.');
+      if(Object.values(data).some(v=>v.length<2)) throw bad(400,'Preencha todos os campos.');
+      if(isQuote && !/^[+()\d\s-]{10,30}$/.test(data.phone)) throw bad(400,'Telefone inválido.');
       await update(isQuote?'leads-demonstracao.json':'interesses-comerciais-teste.json', list=>{list.push({id:crypto.randomUUID(),...data,consent:true,createdAt:new Date().toISOString()});});
       return json(res,201,{ok:true});
     }
@@ -426,7 +475,7 @@ const server=http.createServer(async (req,res)=>{
     // Administração exclusiva, independente de exibir / esconder botões no frontend.
     const admin=allow(s,['admin']);
     if(pathname==='/api/admin/security/unlock' && req.method==='POST') {
-      if(typeof input.currentPassword!=='string'||!auth.verifyPassword(input.currentPassword,admin)) throw bad(401,'Senha administrativa incorreta.');
+      if(input.confirmed!==true)throw bad(400,'Confirme a ação para continuar.');
       const username=str(input.username,30).toLowerCase();
       if(!/^[a-z0-9._-]{3,30}$/.test(username)) throw bad(400,'Conta inválida.');
       if(!(await read(auth.USERFILE)).some(u=>u.username===username)) throw bad(404,'Conta não encontrada.');
@@ -437,7 +486,7 @@ const server=http.createServer(async (req,res)=>{
     }
     if(pathname==='/api/admin/companies' && req.method==='POST') {
       const admin=allow(s,['admin']);
-      if(typeof input.currentPassword!=='string'||!auth.verifyPassword(input.currentPassword,admin))throw bad(401,'Confirme sua senha administrativa.');
+      if(input.confirmed!==true)throw bad(400,'Confirme a ação para continuar.');
       const name=str(input.name,100),contact=str(input.contact,120),notes=str(input.notes,500),region=companyRegion(input);
       if(name.length<3)throw bad(400,'Nome da empresa deve ter pelo menos 3 caracteres.');
       const company={id:crypto.randomUUID(),name,...region,contact,notes,state:'em_configuracao',subscription:{plan:'essencial',status:'teste',setupCents:49000,monthlyCents:19900,nextDueDate:null,updatedAt:new Date().toISOString(),paymentIntegration:false},createdAt:new Date().toISOString()};
@@ -448,7 +497,7 @@ const server=http.createServer(async (req,res)=>{
     const companyMatch=pathname.match(/^\/api\/admin\/companies\/([a-f0-9-]{36})\/(details|subscription)$/);
     if(companyMatch && req.method==='PUT') {
       const admin=allow(s,['admin']);
-      if(typeof input.currentPassword!=='string'||!auth.verifyPassword(input.currentPassword,admin))throw bad(401,'Confirme sua senha administrativa.');
+      if(input.confirmed!==true)throw bad(400,'Confirme a ação para continuar.');
       const action=companyMatch[2];
       const item=await update('empresas.json',list=>{
         const x=list.find(x=>x.id===companyMatch[1]);if(!x)throw bad(404,'Empresa não encontrada.');
@@ -477,7 +526,7 @@ const server=http.createServer(async (req,res)=>{
     }
     const userMatch=pathname.match(/^\/api\/admin\/users\/([a-f0-9-]{36})\/(status|reset|role)$/);
     if(userMatch) {
-      if(typeof input.currentPassword!=='string'||!auth.verifyPassword(input.currentPassword,admin)) throw bad(401,'Confirme sua senha de administrador.');
+      if(input.confirmed!==true)throw bad(400,'Confirme a ação para continuar.');
       const action=userMatch[2],targetId=userMatch[1];
       const pw=action==='reset'?auth.generatePassword():null;
       const target=await update(auth.USERFILE,list=>{
@@ -495,7 +544,7 @@ const server=http.createServer(async (req,res)=>{
     const membershipMatch=pathname.match(/^\/api\/admin\/users\/([a-f0-9-]{36})\/company$/);
     if(membershipMatch && req.method==='PUT'){
       const admin=allow(s,['admin']);
-      if(typeof input.currentPassword!=='string'||!auth.verifyPassword(input.currentPassword,admin))throw bad(401,'Confirme sua senha administrativa.');
+      if(input.confirmed!==true)throw bad(400,'Confirme a ação para continuar.');
       const companyId=str(input.companyId,36);
       if(!await companyExists(companyId))throw bad(400,'Empresa não cadastrada.');
       const target=await update(auth.USERFILE,users=>{
@@ -514,7 +563,7 @@ const server=http.createServer(async (req,res)=>{
       return json(res,200,{user:changed});
     }
     if(pathname==='/api/admin/config' && req.method==='PUT') {
-      if(typeof input.currentPassword!=='string'||!auth.verifyPassword(input.currentPassword,admin)) throw bad(401,'Confirme sua senha.');
+      if(input.confirmed!==true)throw bad(400,'Confirme a ação para continuar.');
       const cfg={name:str(input.name,90),assistantName:str(input.assistantName,90),serviceArea:str(input.serviceArea,250),services:Array.isArray(input.services)?input.services.slice(0,20).map(s=>str(s,90)).filter(Boolean):[],policy:str(input.policy,700),contact:str(input.contact,400),welcome:str(input.welcome,700)};
       if(!cfg.name||!cfg.assistantName||!cfg.services.length)throw bad(400,'Informe nome, assistente e ao menos um serviço.');
       await fs.mkdir(DATA,{recursive:true});
@@ -529,6 +578,14 @@ const server=http.createServer(async (req,res)=>{
     else res.end();
   }
 });
+// Limitar conexões lentas, cabeçalhos e reutilização de conexões.
+server.headersTimeout=10_000;
+server.requestTimeout=15_000;
+server.keepAliveTimeout=5_000;
+server.maxRequestsPerSocket=100;
+server.maxHeadersCount=64;
+server.maxConnections=128;
+server.setTimeout(30_000,socket=>socket.destroy());
 let unlock=()=>{};
 async function start() {
   const users=await read(auth.USERFILE);
@@ -537,6 +594,12 @@ async function start() {
   process.on('exit',()=>unlock());
   for(const signal of ['SIGINT','SIGTERM']) process.once(signal,()=>server.close(()=>process.exit(0)));
   await migrateLegacy();
+  if(securityAlerts.enabled){
+    const alertTimer=setInterval(()=>{void securityAlerts.flush();},60_000);
+    alertTimer.unref();
+    for(const signal of ['SIGINT','SIGTERM'])process.once(signal,()=>clearInterval(alertTimer));
+    console.log('Alertas de segurança WhatsApp habilitados (agrupados).');
+  }
   server.on('error',err=>{console.error('Falha ao iniciar:',err.message);unlock();process.exitCode=1;});
   server.listen(PORT,HOST,()=>{
   console.log('Diretorio de dados: '+DATA);

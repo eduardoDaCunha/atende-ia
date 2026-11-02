@@ -55,3 +55,16 @@ button,.primary,.ghost,.link,.tag,.status,.loginbox .return-public{border-radius
 .message.wpp-robo{background:#14202a;border-style:dashed}
 .message.wpp-atendente{background:#142923;border-color:#3c6b4a}
 .status.wpp-alert{background:#4a3a1c;color:var(--warning)}
+.login-blocked{margin:18px 0;border-radius:12px;overflow:hidden;background:#faf8f1}.login-blocked img{display:block;width:100%;height:auto}
+
+/* Cidade -> UF no cadastro de empresas (lista do IBGE). */
+.city-help{display:grid;gap:6px}
+.city-hint{margin:0;font-size:12px;font-weight:600;color:var(--muted);min-height:0}
+.city-hint:empty{display:none}
+.city-hint.good{color:var(--accent)}
+.city-hint.warn{color:var(--warning)}
+.city-options{display:flex;flex-wrap:wrap;gap:6px}
+.city-options:empty{display:none}
+.city-options button{font-size:12px;padding:5px 9px;font-weight:650}
+/* Sugestões de cidade aumentam o campo: os vizinhos ficam alinhados pelo topo, sem descer. */
+.biz-form>label,.biz-form-grid>label{align-self:start}

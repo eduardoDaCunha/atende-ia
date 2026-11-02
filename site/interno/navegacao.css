@@ -1,0 +1,105 @@
+/* Navegação do painel por ícones. Usa as cores definidas em painel.css. */
+.nav-off { display: none !important; }
+
+/* Com uma coluna só visível, ela ocupa toda a largura. */
+.columns:has(> .nav-off) { grid-template-columns: minmax(0, 1fr); }
+
+/* Links com cara de botão, inclusive os do topo. */
+a.ghost.link { display: inline-flex; align-items: center; min-height: 40px; padding: 8px 14px; text-decoration: none; }
+
+/* Tela inicial */
+.nav-group { margin-top: 32px; }
+.nav-group-title { margin: 0 0 14px; font-size: 0.875rem; font-weight: 600; letter-spacing: 0; color: var(--muted); }
+.nav-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 14px; }
+
+.nav-tile {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  width: 100%;
+  min-height: 158px;
+  padding: 20px;
+  border: 1px solid var(--stroke);
+  border-radius: 8px;
+  background: var(--panel);
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  text-decoration: none;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background-color 0.15s ease;
+}
+.nav-tile:hover { border-color: var(--accent); background: var(--soft); }
+.nav-tile:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.nav-tile strong { font-size: 1.0625rem; line-height: 1.3; font-weight: 650; }
+.nav-text { font-size: 0.875rem; line-height: 1.4; color: var(--muted); }
+
+.nav-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 48px;
+  margin-bottom: 12px;
+  border-radius: 8px;
+  background: var(--soft);
+  color: var(--accent);
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+.nav-tile:hover .nav-icon { background: var(--accent); color: var(--bg); }
+.nav-icon svg { width: 26px; height: 26px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+
+.nav-badge {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  min-width: 26px;
+  padding: 2px 8px;
+  border-radius: 6px;
+  background: var(--accent);
+  color: var(--bg);
+  font-size: 0.8125rem;
+  font-weight: 700;
+  line-height: 1.5;
+  text-align: center;
+}
+
+/* Cabeçalho de cada tela */
+.nav-view-head { margin-bottom: 24px; }
+.nav-back { margin-bottom: 20px; }
+.nav-view-title { margin: 0; font-size: clamp(1.75rem, 4vw, 2.75rem); line-height: 1.1; outline: none; }
+.nav-view-head .muted { margin: 8px 0 0; }
+
+main[data-view=""] .nav-view-head { display: none; }
+
+/* Passo a passo */
+.nav-wizard:not(.nav-off) { display: flex !important; flex-direction: column; align-items: stretch; gap: 16px; }
+.box:has(> .nav-wizard) { max-width: 720px; }
+form.nav-wizard > label { display: grid; gap: 6px; align-self: stretch; width: 100%; }
+.nav-wizard input, .nav-wizard select, .nav-wizard textarea { width: 100%; }
+.nav-review { order: 2; }
+.nav-step-actions { order: 3; }
+.nav-wizard > .notice { order: 4; }
+
+.nav-steps { display: flex; flex-wrap: wrap; gap: 8px 20px; padding-bottom: 16px; border-bottom: 1px solid var(--line); }
+.nav-step { display: inline-flex; align-items: center; gap: 8px; font-size: 0.875rem; font-weight: 500; color: var(--muted); }
+.nav-step b { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; border: 1px solid var(--stroke); border-radius: 6px; font-size: 0.8125rem; }
+.nav-step.on { color: var(--text); font-weight: 650; }
+.nav-step.on b { border-color: var(--accent); background: var(--accent); color: var(--bg); }
+.nav-step.done b { border-color: var(--accent); color: var(--accent); }
+
+.nav-review { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 2fr); gap: 0; margin: 0; }
+.nav-review dt, .nav-review dd { margin: 0; padding: 10px 0; border-bottom: 1px solid var(--line); }
+.nav-review dt { padding-right: 16px; color: var(--muted); font-size: 0.875rem; }
+.nav-review dd { overflow-wrap: anywhere; white-space: pre-wrap; }
+
+.nav-step-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 10px; }
+
+@media (max-width: 560px) {
+  .nav-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  .nav-tile { min-height: 148px; padding: 16px; }
+  .nav-review { grid-template-columns: minmax(0, 1fr); }
+  .nav-review dt { padding-bottom: 0; border-bottom: 0; }
+}

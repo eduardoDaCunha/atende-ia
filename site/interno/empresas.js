@@ -18,6 +18,52 @@ function selectField(label,key,options,value){
   const outer=uiNode('label');outer.append(uiNode('span',label));const s=uiNode('select');s.name=key;
   for(const [id,name] of Object.entries(options)){const op=uiNode('option',name);op.value=id;op.selected=id===value;s.append(op);}outer.append(s);return outer;
 }
+// Cidade -> UF: reconhece a cidade pela lista do IBGE (cidades.js), mesmo com erro de digitação,
+// corrige o nome e preenche a UF. Nomes que existem em vários estados viram opções para escolher.
+let cidadesPromessa=null;
+function carregarCidades(){
+  if(!window.AtendeCidades)return Promise.resolve(null);
+  cidadesPromessa??=fetch('/municipios.json',{credentials:'same-origin'})
+    .then(r=>{if(!r.ok)throw Error('lista indisponível');return r.json();})
+    .then(d=>window.AtendeCidades.criar(d))
+    .catch(()=>{cidadesPromessa=null;return null;});
+  return cidadesPromessa;
+}
+function ligarCidadeUf(cityInput,ufSelect){
+  if(!cityInput||!ufSelect)return;
+  const help=uiNode('div',null,'city-help'),hint=uiNode('p','','city-hint'),options=uiNode('div',null,'city-options');
+  hint.setAttribute('role','status');help.append(hint,options);cityInput.after(help);
+  const avisar=(texto,tipo='')=>{hint.textContent=texto;hint.className='city-hint'+(tipo?' '+tipo:'');};
+  const escolher=c=>{cityInput.value=c.nome;ufSelect.value=c.uf;options.replaceChildren();avisar(`Cidade reconhecida: ${c.nome} / ${c.uf}.`,'good');};
+  const mostrar=lista=>{options.replaceChildren(...lista.map(c=>{
+    const b=uiNode('button',`${c.nome} — ${c.uf}`);b.type='button';
+    b.addEventListener('mousedown',e=>e.preventDefault()); // não tira o foco do campo antes do clique
+    b.addEventListener('click',()=>{escolher(c);cityInput.focus();});return b;}));};
+  let espera=null;
+  cityInput.addEventListener('input',()=>{
+    clearTimeout(espera);
+    espera=setTimeout(async()=>{
+      const cidades=await carregarCidades();if(!cidades)return;
+      const r=cidades.reconhecer(cityInput.value);
+      // Enquanto digita, só preenche a UF com nome exato; correções esperam a saída do campo.
+      if(r.tipo==='unica'&&!r.corrigido){ufSelect.value=r.cidade.uf;options.replaceChildren();avisar(`UF preenchida: ${r.cidade.uf}.`,'good');return;}
+      const sugestoes=cidades.buscar(cityInput.value,6);
+      mostrar(sugestoes);avisar(sugestoes.length?'Sugestões:':'');
+    },150);
+  });
+  cityInput.addEventListener('change',async()=>{
+    clearTimeout(espera);
+    const cidades=await carregarCidades();if(!cidades||!cityInput.value.trim())return;
+    const r=cidades.reconhecer(cityInput.value);
+    if(r.tipo==='unica')return escolher(r.cidade);
+    // Sem cidade certa, não deixa a UF de uma cidade anterior: o cadastro novo volta a "Selecione a UF".
+    if([...ufSelect.options].some(o=>o.value===''))ufSelect.value='';
+    if(r.tipo==='ambigua'){mostrar(r.opcoes);avisar('Essa cidade existe em mais de um estado. Escolha a certa:','warn');}
+    else{const s=cidades.buscar(cityInput.value,6);mostrar(s);avisar(s.length?'Cidade não reconhecida. Você quis dizer:':'Cidade não encontrada na lista do IBGE. Confira o nome e escolha a UF.','warn');}
+  });
+  cityInput.addEventListener('keydown',e=>{if(e.key==='Escape')options.replaceChildren();});
+  cityInput.form?.addEventListener('reset',()=>{options.replaceChildren();avisar('');});
+}
 function formValues(form){return Object.fromEntries(new FormData(form).entries());}
 function brl(cents){return (Number(cents||0)/100).toLocaleString('pt-BR',{style:'currency',currency:'BRL'});}
 function notifyCompany(msg,ok=false){const n=document.getElementById('companies-feedback');n.textContent=msg;n.classList.toggle('good',ok);}
@@ -39,7 +85,7 @@ async function saveCompany(form,id,name,action){
   try{
     const pw=await verifyAdmin(action==='subscription'?`Alterar plano de ${name}`:`Editar cadastro de ${name}`);
     if(!pw)return;
-    const data=formValues(form);data.currentPassword=pw;
+    const data=formValues(form);data.confirmed=true;
     if(action==='subscription'){
       data.setupCents=Math.round(Number(data.setupReais.replace(',','.'))*100);
       data.monthlyCents=Math.round(Number(data.monthlyReais.replace(',','.'))*100);
@@ -63,6 +109,7 @@ function renderCompany(c){
   details.append(inputField('Contato de teste','contact',c.contact,'text',{maxlength:120}));
   details.append(selectField('Situação do cadastro','state',states,c.state));
   details.append(inputField('Observações internas','notes',c.notes,'text',{maxlength:500}));
+  ligarCidadeUf(details.querySelector('input[name="city"]'),details.querySelector('select[name="uf"]'));
   const save=uiNode('button','Salvar dados da empresa','primary');save.type='submit';details.append(save);
   details.addEventListener('submit',e=>{e.preventDefault();saveCompany(details,c.id,c.name,'details');});box.append(details);
   const sub=c.subscription||{};const subform=uiNode('form',null,'biz-form-grid');
@@ -79,12 +126,13 @@ function renderCompany(c){
 }
 window.initAtendeCompanies=async function(){
   const u=document.getElementById('new-company-uf');for(const uf of ufs){const o=uiNode('option',uf);o.value=uf;u.append(o);}
+  ligarCidadeUf(document.querySelector('#new-company input[name="city"]'),u);
   const r=await api('/api/admin/plans');planDefinitions=r.plans||{};
   document.getElementById('new-company').addEventListener('submit',async event=>{
     event.preventDefault();const form=event.currentTarget;const btn=form.querySelector('button[type="submit"]')||form.querySelector('button');btn.disabled=true;
     try{
       const pw=await verifyAdmin('Cadastrar nova empresa');if(!pw)return;
-      await api('/api/admin/companies','POST',{...formValues(form),currentPassword:pw});
+      await api('/api/admin/companies','POST',{...formValues(form),confirmed:true});
       form.reset();notifyCompany('Empresa cadastrada. Agora você pode criar usuários vinculados a ela.',true);
       await loadAtendeCompanies();await loadAudit();
     }catch(e){notifyCompany(e.message);}finally{btn.disabled=false;}

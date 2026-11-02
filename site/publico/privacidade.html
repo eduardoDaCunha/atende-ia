@@ -3,31 +3,75 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="theme-color" content="#0d1320">
-  <meta name="description" content="Como a demonstração local do Atende.IA trata os dados de teste, os registros de acesso e as informações dos formulários.">
+  <meta name="theme-color" content="#0a0a0b">
+  <meta name="color-scheme" content="dark light">
+  <meta name="description" content="Como a Atende.IA trata as informações enviadas pelo site, pelo agente e pelos formulários.">
   <link rel="icon" href="/favicon.webp" type="image/webp" sizes="128x128">
-  <link rel="stylesheet" href="/style.css?v=037">
+  <link rel="preload" href="/geist.woff2?v=1" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="/style.css?v=063"><script src="/tema.js?v=1"></script><link rel="stylesheet" href="/tema.css?v=1">
   <title>Política de privacidade | Atende.IA</title>
 </head>
 <body>
-  <a class="skip-link" href="#conteudo">Ir para conteúdo</a>
-  <header class="topbar shell"><a class="brand" href="/" aria-label="Atende.IA: página inicial"><span class="brandmark" aria-hidden="true"><img src="/favicon.webp" alt="" width="36" height="36"></span><span>atende<span class="branddot">.ia</span></span></a><a class="btn btn-secondary" href="/">Voltar ao site</a></header>
-  <main class="shell privacy-content" id="conteudo">
-    <p class="eyebrow">PRIVACIDADE | VERSÃO DE TESTES</p>
-    <h1>Política de privacidade da demonstração</h1>
-    <p class="lede">Esta página descreve o funcionamento atual da demonstração local. <strong>Não é uma política pronta para publicação comercial.</strong> O sistema ainda não deve receber dados pessoais reais.</p>
-    <h2>O que é coletado nos testes?</h2>
-    <p>Os formulários simulam pedidos de orçamento e contatos comerciais. Os dados digitados, quando enviados, ficam em arquivos locais na pasta <code>data/</code>. Para testar, use apenas dados fictícios.</p>
-    <h2>Como funciona o chat?</h2>
-    <p>Em modo de demonstração, as mensagens são processadas localmente por respostas programadas. Se uma API externa de IA for ativada, as mensagens e um resumo do contexto serão enviados ao fornecedor configurado. Não insira dados pessoais ou sigilosos no chat.</p>
-    <h2>Contas, sessões e segurança</h2>
-    <p>O sistema interno usa contas e sessões para controlar acesso. Registros de tentativas de login, ações administrativas e solicitações ficam armazenados localmente para testes e auditoria. A sessão utiliza um cookie técnico necessário para o login, sem ferramenta de publicidade ou métricas de terceiros no projeto atual.</p>
-    <h2>Prazo de armazenamento e exclusão</h2>
-    <p>Nesta versão, não existe exclusão automática: os registros persistem até uma manutenção local autorizada. Antes de publicar, será necessário estabelecer prazos de conservação, mecanismos de exclusão e uma rotina de backup.</p>
-    <h2>Seus direitos e o contato responsável</h2>
-    <p>Antes do lançamento, esta seção deverá informar o responsável legal pelo tratamento dos dados, o canal de contato, as finalidades e bases legais aplicáveis, fornecedores envolvidos e como solicitar acesso, correção ou exclusão. Essas informações ainda não foram definidas para o serviço comercial.</p>
-    <p><strong>Importante:</strong> este protótipo opera apenas no computador em que o servidor é iniciado. Não publique a aplicação nem aceite informações reais de clientes antes de revisar a segurança e a política de privacidade.</p>
+  <a class="skip-link" href="#conteudo">Ir para o conteúdo</a>
+  <header class="topbar">
+    <div class="shell topbar-inner">
+      <a class="brand" href="/" aria-label="Atende.IA, página inicial"><img src="/favicon.webp" width="26" height="26" alt=""><span>Atende.IA</span></a>
+      <a class="btn btn-secondary btn-small" href="/">Voltar ao site</a>
+    </div>
+  </header>
+
+  <main id="conteudo">
+    <div class="shell legal-head">
+      <h1>Política de privacidade</h1>
+      <p class="lede">Como tratamos as informações enviadas pelo site, pelo agente e pelos formulários.</p>
+    </div>
+    <div class="rule">
+      <div class="shell legal-layout split">
+        <nav class="legal-nav col-4 sticky" aria-labelledby="nav-title">
+          <h2 id="nav-title">Nesta página</h2>
+          <a href="#coleta">O que é coletado</a>
+          <a href="#chat">Conversa com o agente</a>
+          <a href="#contas">Contas e sessões</a>
+          <a href="#prazo">Armazenamento e exclusão</a>
+          <a href="#direitos">Seus direitos</a>
+        </nav>
+        <div class="legal-body col-8">
+          <section id="coleta">
+            <h2>O que é coletado?</h2>
+            <p>O formulário de contato coleta empresa, nome, e-mail ou telefone e a descrição do pedido, com a sua autorização. Esses dados ficam armazenados no servidor da Atende.IA para a análise do pedido.</p>
+          </section>
+          <section id="chat">
+            <h2>Conversa com o agente</h2>
+            <p>As mensagens são processadas para gerar a resposta. Quando um provedor externo de IA está ativado, as mensagens e um resumo do contexto são enviados a esse provedor. Não informe dados pessoais, senhas, documentos ou informações sigilosas no chat.</p>
+          </section>
+          <section id="contas">
+            <h2>Contas, sessões e segurança</h2>
+            <p>O sistema interno usa contas e sessões para controlar acesso. Registros de tentativas de login, ações administrativas e solicitações ficam armazenados para segurança e auditoria. A sessão utiliza um cookie técnico necessário para o login. Não usamos ferramentas de publicidade ou métricas de terceiros.</p>
+          </section>
+          <section id="prazo">
+            <h2>Prazo de armazenamento e exclusão</h2>
+            <p>Não há exclusão automática: os registros são mantidos até serem removidos em uma manutenção autorizada ou a seu pedido.</p>
+          </section>
+          <section id="direitos">
+            <h2>Seus direitos</h2>
+            <p>Você pode pedir acesso, correção ou exclusão dos seus dados pelo formulário “Falar com a equipe”, na <a href="/">página inicial</a>.</p>
+          </section>
+        </div>
+      </div>
+    </div>
   </main>
-  <footer class="foot shell"><span>Atende.IA | versão de testes</span><span><a href="/">Página inicial</a> · <a href="/termos">Termos e condições</a></span></footer>
+
+  <footer class="foot">
+    <div class="shell foot-inner note">
+      <div class="foot-about"><p>Atende.IA. Versão 0.3.8.3</p></div>
+      <nav class="foot-col" aria-labelledby="foot-docs">
+        <h2 id="foot-docs">Navegação</h2>
+        <ul>
+          <li><a href="/">Página inicial</a></li>
+          <li><a href="/termos">Termos e condições</a></li>
+        </ul>
+      </nav>
+    </div>
+  </footer>
 </body>
 </html>

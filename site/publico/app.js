@@ -1,60 +1,57 @@
 'use strict';
+const WELCOME = 'Olá! Sou o agente virtual da Atende.IA. Pergunte como funciona, o que dá para automatizar ou se serve para a sua empresa. Se quiser, conte o seu ramo.';
 const chat = document.querySelector('#chat');
 const form = document.querySelector('#chat-form');
 const messageInput = document.querySelector('#message');
 const sendButton = document.querySelector('#send');
-const modeBanner = document.querySelector('#mode');
-const mascot = document.querySelector('.avatar');
-const demoDialog = document.querySelector('#lead-dialog');
-const commercialDialog = document.querySelector('#commercial-dialog');
 let history = [];
 let busy = false;
 let requestId = 0;
 let activeController = null;
-let company = {
-  name: 'Empresa de exemplo', assistantName: 'Assistente de demonstração',
-  serviceArea: 'Área de atendimento de exemplo',
-  welcome: 'Olá! Esta é uma demonstração de atendimento. Você pode perguntar sobre serviços, região atendida e solicitações de orçamento.'
-};
 
-function bubble(text, who, extraClass = '') {
+/* Conversa */
+function bubble(text, who) {
   const node = document.createElement('div');
-  node.className = `message ${who} ${extraClass}`.trim();
+  node.className = `message ${who}`;
   // Somente texto: não renderizar HTML recebido da IA ou do visitante.
   node.textContent = text;
   chat.append(node);
   chat.scrollTop = chat.scrollHeight;
   return node;
 }
+function loadingBubble() {
+  const node = bubble('', 'agent');
+  const dots = document.createElement('span');
+  dots.className = 'typing';
+  dots.setAttribute('aria-hidden', 'true');
+  for (let i = 0; i < 3; i++) dots.append(document.createElement('i'));
+  const label = document.createElement('span');
+  label.className = 'sr-only';
+  label.textContent = 'Preparando resposta';
+  node.append(dots, label);
+  return node;
+}
+function setBusy(value) {
+  busy = value;
+  sendButton.disabled = value;
+}
 function reset() {
   requestId++;
   activeController?.abort();
   activeController = null;
-  busy = false;
-  mascot?.classList.remove('thinking');
-  sendButton.disabled = false;
+  setBusy(false);
   history = [];
   chat.replaceChildren();
-  bubble(company.welcome, 'agent');
+  bubble(WELCOME, 'agent');
   messageInput.value = '';
 }
-async function ask(text) {
+async function ask(text, keepFocus = false) {
   const message = text.trim();
   if (!message || busy) return;
   const myRequest = ++requestId;
-  busy = true;
-  mascot?.classList.add('thinking');
-  sendButton.disabled = true;
+  setBusy(true);
   bubble(message, 'visitor');
-  const loading = bubble('', 'agent', 'pending');
-  loading.setAttribute('aria-label', 'Preparando resposta');
-  const typing = document.createElement('span');
-  typing.className = 'typing-dots';
-  typing.setAttribute('aria-hidden', 'true');
-  for (let i = 0; i < 3; i++) typing.append(document.createElement('i'));
-  const sr = document.createElement('span');
-  sr.className = 'sr-only'; sr.textContent = 'Preparando resposta…';
-  loading.append(typing, sr);
+  const loading = loadingBubble();
   const controller = new AbortController();
   activeController = controller;
   try {
@@ -65,36 +62,22 @@ async function ask(text) {
       signal: controller.signal
     });
     const result = await response.json();
-    if (!response.ok) throw new Error(result.error || 'Não foi possível responder.');
+    if (!response.ok) throw new Error(result.error || 'Tente novamente em instantes.');
     if (myRequest !== requestId) return;
     loading.textContent = result.answer;
-    loading.classList.remove('pending');
-    loading.removeAttribute('aria-label');
     history.push({ role: 'user', text: message }, { role: 'assistant', text: result.answer });
     history = history.slice(-8);
   } catch (error) {
     if (myRequest !== requestId) return;
     loading.textContent = `Não consegui responder agora. ${error.message}`;
-    loading.classList.remove('pending');
-    loading.removeAttribute('aria-label');
   } finally {
     if (myRequest === requestId) {
-      busy = false;
-      mascot?.classList.remove('thinking');
+      setBusy(false);
       activeController = null;
-      sendButton.disabled = false;
-      messageInput.focus();
+      if (keepFocus) messageInput.focus({ preventScroll: true });
       chat.scrollTop = chat.scrollHeight;
     }
   }
-}
-function configureCompany(data) {
-  if (!data || typeof data !== 'object') return;
-  company = { ...company, ...data };
-  document.querySelector('#assistant-name').textContent = company.assistantName;
-  document.querySelector('#company-proof').textContent = company.name;
-  document.querySelector('#company-area').textContent = company.serviceArea;
-  reset();
 }
 
 form.addEventListener('submit', event => {
@@ -102,39 +85,34 @@ form.addEventListener('submit', event => {
   const message = messageInput.value;
   if (!message.trim() || busy) return;
   messageInput.value = '';
-  ask(message);
+  ask(message, true);
 });
 document.querySelectorAll('[data-msg]').forEach(button => button.addEventListener('click', () => ask(button.dataset.msg)));
 document.querySelector('#restart').addEventListener('click', reset);
 
-function attachDialog(dialog, openerIds, closeId) {
-  openerIds.forEach(id => document.querySelector(`#${id}`).addEventListener('click', () => dialog.showModal()));
-  document.querySelector(`#${closeId}`).addEventListener('click', () => dialog.close());
+/* Contato com a equipe */
+function connectContact() {
+  const dialog = document.querySelector('#commercial-dialog');
+  const contactForm = document.querySelector('#commercial-form');
+  const feedback = document.querySelector('#commercial-feedback');
+  document.querySelectorAll('[data-open-contact]').forEach(button => button.addEventListener('click', () => dialog.showModal()));
+  document.querySelector('#close-commercial').addEventListener('click', () => dialog.close());
   dialog.addEventListener('click', event => { if (event.target === dialog) dialog.close(); });
-}
-attachDialog(demoDialog, ['open-lead'], 'close-lead');
-attachDialog(commercialDialog, ['open-commercial', 'open-commercial-hero'], 'close-commercial');
-
-function connectForm(formSelector, feedbackSelector, endpoint, successMessage) {
-  const leadForm = document.querySelector(formSelector);
-  const feedback = document.querySelector(feedbackSelector);
-  leadForm.addEventListener('submit', async event => {
+  contactForm.addEventListener('submit', async event => {
     event.preventDefault();
-    const button = leadForm.querySelector('[type="submit"]');
-    const data = Object.fromEntries(new FormData(leadForm).entries());
+    const button = contactForm.querySelector('[type="submit"]');
+    const data = Object.fromEntries(new FormData(contactForm).entries());
     data.consent = Boolean(data.consent);
     feedback.textContent = '';
-    feedback.classList.remove('ok');
     button.disabled = true;
     try {
-      const response = await fetch(endpoint, {
+      const response = await fetch('/api/commercial-lead', {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data)
       });
       const result = await response.json();
-      if (!response.ok) throw new Error(result.error || 'Não foi possível salvar o teste.');
-      feedback.textContent = successMessage;
-      feedback.classList.add('ok');
-      leadForm.reset();
+      if (!response.ok) throw new Error(result.error || 'Não foi possível enviar o pedido.');
+      feedback.textContent = 'Pedido registrado para a equipe. Obrigado.';
+      contactForm.reset();
     } catch (error) {
       feedback.textContent = error.message;
     } finally {
@@ -142,23 +120,36 @@ function connectForm(formSelector, feedbackSelector, endpoint, successMessage) {
     }
   });
 }
-connectForm('#lead-form', '#lead-feedback', '/api/lead', 'Teste salvo neste computador, em data/leads-demonstracao.json. Nenhum contato foi enviado.');
-connectForm('#commercial-form', '#commercial-feedback', '/api/commercial-lead', 'Simulação comercial salva em data/interesses-comerciais-teste.json. Nenhuma mensagem foi enviada à equipe.');
 
-fetch('/api/company')
-  .then(response => { if (!response.ok) throw new Error('Configuração indisponível'); return response.json(); })
-  .then(configureCompany)
-  .catch(() => { /* O chat segue utilizável com conteúdo de exemplo. */ });
+/* Telas do console: abas com teclado (setas, Home e End). */
+function connectTabs() {
+  const tabs = [...document.querySelectorAll('.console-tabs [role="tab"]')];
+  const select = tab => tabs.forEach(item => {
+    const active = item === tab;
+    item.setAttribute('aria-selected', String(active));
+    item.tabIndex = active ? 0 : -1;
+    document.querySelector(`#${item.getAttribute('aria-controls')}`).hidden = !active;
+  });
+  tabs.forEach((tab, index) => {
+    tab.addEventListener('click', () => select(tab));
+    tab.addEventListener('keydown', event => {
+      const moves = { ArrowRight: index + 1, ArrowLeft: index - 1, Home: 0, End: tabs.length - 1 };
+      if (!(event.key in moves)) return;
+      event.preventDefault();
+      const next = tabs[(moves[event.key] + tabs.length) % tabs.length];
+      select(next);
+      next.focus();
+    });
+  });
+}
+
+/* Inicialização */
+connectContact();
+connectTabs();
 fetch('/api/status')
-  .then(response => { if (!response.ok) throw new Error('Servidor indisponível'); return response.json(); })
+  .then(response => response.ok ? response.json() : null)
   .then(status => {
-    modeBanner.textContent = status.ai
-      ? 'Modelo de IA conectado. Ambiente de demonstração.'
-      : 'Demonstração com respostas programadas. Nenhuma IA conectada.';
-    modeBanner.classList.toggle('live', status.ai);
+    if (status?.version) document.querySelectorAll('[data-version]').forEach(node => { node.textContent = status.version; });
   })
-  .catch(() => { modeBanner.textContent = 'Servidor indisponível. Recarregue a página.'; });
+  .catch(() => { /* A versão escrita na página continua valendo. */ });
 reset();
-
-// Layout estático e sem animações ligadas ao cursor ou à rolagem.
-// A conversa e os formulários continuam funcionais.
