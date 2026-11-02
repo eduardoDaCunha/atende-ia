@@ -13,6 +13,9 @@ const auth = require('./auth');
 const { AI_ENABLED, MODEL, bad, str, company, normalize, siteAnswer, aiAnswer } = require('./resposta');
 const whatsapp = require('./whatsapp');
 const conversas = require('./conversas');
+// Ferramentas de integração: permissão, limite, auditoria e limpeza de saída ficam no núcleo.
+const ferramentas = require('./catalogo').criarCatalogo({dentroDoServidor:true});
+const contextoFerramenta = s => ({usuario:s?.user||null, origem:'painel', auditar:(acao,ator,detalhe)=>audit(acao,ator,detalhe)});
 // null quando o WhatsApp não foi configurado; configuração pela metade impede a partida.
 const WPP = whatsapp.loadConfig(process.env);
 const securityAlerts=whatsapp.createSecurityAlerts(WPP);
@@ -343,6 +346,9 @@ const server=http.createServer(async (req,res)=>{
         return json(res,200,{blocked,events:events.slice(-100).reverse(),summary:{locked:blocked.length,failed:last24.filter(e=>e.result==='falha').length,blockedAttempts:last24.filter(e=>e.result==='bloqueado').length,successful:last24.filter(e=>e.result==='sucesso').length}});
       }
       if (pathname==='/api/admin/config') { allow(s,['admin']);return json(res,200,{config:company()}); }
+      if (pathname==='/api/ferramentas') { allow(s,['admin','atendimento','cliente']);return json(res,200,{items:ferramentas.listar(contextoFerramenta(s))}); }
+      // Diagnóstico somente leitura; sem conexões externas (essas exigem POST abaixo).
+      if (pathname==='/api/admin/diagnostico') return json(res,200,(await ferramentas.executar('diagnostico',{},contextoFerramenta(s))).resultado);
       if (pathname==='/api/admin/health') {
         allow(s,['admin']);const users=await read(auth.USERFILE),reqs=await read('solicitacoes.json');
         return json(res,200,{mode:'LOCAL — não publicar',users:users.length,requests:reqs.length,sessions:'somente na memória',database:'Arquivos JSON locais; backup manual necessário',ai:AI_ENABLED});
@@ -473,7 +479,17 @@ const server=http.createServer(async (req,res)=>{
       return json(res,200,{item:conversas.completa(c)});
     }
     // Administração exclusiva, independente de exibir / esconder botões no frontend.
+    // Executa uma ferramenta: o núcleo confere perfil, entrada, limite e confirmação de ações.
+    const toolMatch=pathname.match(/^\/api\/ferramentas\/([a-z][a-z0-9_]{2,63})$/);
+    if(toolMatch && req.method==='POST') {
+      if(input.args!==undefined && (typeof input.args!=='object'||input.args===null||Array.isArray(input.args))) throw bad(400,'args deve ser um objeto.');
+      return json(res,200,await ferramentas.executar(toolMatch[1],input.args||{},contextoFerramenta(s),typeof input.confirmacao==='string'?input.confirmacao:undefined));
+    }
     const admin=allow(s,['admin']);
+    if(pathname==='/api/admin/diagnostico' && req.method==='POST') {
+      const nome=input.testarConexoes===true?'diagnostico_testar_conexoes':'diagnostico';
+      return json(res,200,(await ferramentas.executar(nome,{},contextoFerramenta(s))).resultado);
+    }
     if(pathname==='/api/admin/security/unlock' && req.method==='POST') {
       if(input.confirmed!==true)throw bad(400,'Confirme a ação para continuar.');
       const username=str(input.username,30).toLowerCase();
