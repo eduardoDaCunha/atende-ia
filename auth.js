@@ -16,7 +16,40 @@ function verifyPassword(password, user) {
 }
 function passwordValid(password) { return typeof password === 'string' && password.length >= 12 && password.length <= 128; }
 function generatePassword() { return crypto.randomBytes(18).toString('base64url') + 'aA1!'; }
-function safeUser(user) { return { id:user.id, username:user.username, name:user.name, role:user.role, active:user.active, mustChangePassword:user.mustChangePassword, companyId:user.companyId||null, createdAt:user.createdAt }; }
+// ATENDE_MFA_ADMIN=1 (produção): administrador só usa o painel depois de ativar a verificação em duas etapas.
+const MFA_ADMIN = process.env.ATENDE_MFA_ADMIN === '1';
+const mfaRequired = user => MFA_ADMIN && user.role === 'admin' && !user.mfaEnabled;
+// Nunca devolve hash, salt nem o segredo do autenticador.
+function safeUser(user) { return { id:user.id, username:user.username, name:user.name, role:user.role, active:user.active, mustChangePassword:user.mustChangePassword, companyId:user.companyId||null, createdAt:user.createdAt, mfaEnabled:Boolean(user.mfaEnabled), mfaRequired:mfaRequired(user) }; }
+
+// ---------------------------------------------------------------- verificação em duas etapas (TOTP, RFC 6238)
+// Código de 6 dígitos que muda a cada 30 s, gerado por qualquer app autenticador.
+const B32 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+function base32(buf) { let bits = '', out = ''; for (const b of buf) bits += b.toString(2).padStart(8, '0'); for (let i = 0; i + 5 <= bits.length; i += 5) out += B32[parseInt(bits.slice(i, i + 5), 2)]; return out; }
+function deBase32(txt) { let bits = ''; for (const c of String(txt).toUpperCase().replace(/[^A-Z2-7]/g, '')) bits += B32.indexOf(c).toString(2).padStart(5, '0'); const out = []; for (let i = 0; i + 8 <= bits.length; i += 8) out.push(parseInt(bits.slice(i, i + 8), 2)); return Buffer.from(out); }
+function newMfaSecret() { return base32(crypto.randomBytes(20)); }
+function totp(secret, step) {
+  const msg = Buffer.alloc(8); msg.writeBigUInt64BE(BigInt(step));
+  const h = crypto.createHmac('sha1', deBase32(secret)).update(msg).digest();
+  const o = h[h.length - 1] & 15;
+  return String((h.readUInt32BE(o) & 0x7fffffff) % 1_000_000).padStart(6, '0');
+}
+const lastStep = new Map(); // usuário -> último passo aceito: o mesmo código não serve duas vezes
+/** Aceita o código do passo atual ou de um passo vizinho (relógio do celular adiantado/atrasado). */
+function verifyTotp(secret, code, userId, now = Date.now()) {
+  if (!secret || !/^\d{6}$/.test(String(code || ''))) return false;
+  const step = Math.floor(now / 30_000);
+  for (const d of [0, -1, 1]) {
+    const s = step + d;
+    if (s <= (lastStep.get(userId) || 0)) continue;
+    if (crypto.timingSafeEqual(Buffer.from(totp(secret, s)), Buffer.from(String(code)))) { lastStep.set(userId, s); return true; }
+  }
+  return false;
+}
+function otpauthUrl(secret, username) {
+  const rotulo = encodeURIComponent('Atende.IA:' + username);
+  return `otpauth://totp/${rotulo}?secret=${secret}&issuer=Atende.IA&algorithm=SHA1&digits=6&period=30`;
+}
 function sessionKey(token) { return crypto.createHash('sha256').update(token).digest('hex'); }
 function cookie(req, name) {
   const all = String(req.headers.cookie || '').split(';');
@@ -83,4 +116,4 @@ function blockedAccounts() {
   return result.sort((a,b)=>a.until.localeCompare(b.until));
 }
 function unblock(username) { const existed=Boolean(lockInfo(username));forget(username);return existed; }
-module.exports = { hashPassword, verifyPassword, passwordValid, generatePassword, safeUser, newSession, clearSession, revokeUser, session, locked, fail, forget, lockInfo, blockedAccounts, unblock, ROLES, USERFILE };
+module.exports = { MFA_ADMIN, mfaRequired, newMfaSecret, verifyTotp, totp, otpauthUrl, hashPassword, verifyPassword, passwordValid, generatePassword, safeUser, newSession, clearSession, revokeUser, session, locked, fail, forget, lockInfo, blockedAccounts, unblock, ROLES, USERFILE };

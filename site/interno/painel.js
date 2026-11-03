@@ -84,8 +84,25 @@ async function api(path,method='GET',payload=null){
   if(method!=='GET'&&session?.csrf)opts.headers['X-CSRF-Token']=session.csrf;
   const resp=await fetch(path,opts);let data;
   try{data=await resp.json();}catch{throw Error('Resposta inválida do servidor.');}
-  if(!resp.ok)throw Object.assign(Error(data.error||'Erro na solicitação.'),{status:resp.status});
+  if(!resp.ok)throw Object.assign(Error(data.error||'Erro na solicitação.'),{status:resp.status,mfa:data.mfa===true});
   return data;
+}
+// Ativação da verificação em duas etapas (admin, quando obrigatória).
+async function startMfaSetup(){
+  const form=$('#mfa-form');show(form,true);
+  feedback('#notice','Falta um passo: ative a verificação em duas etapas.');
+  try{
+    if(!session?.csrf)session=await api('/api/auth/me');
+    const {segredo,url}=await api('/api/auth/mfa/iniciar','POST',{});
+    $('#mfa-secret').textContent=segredo;$('#mfa-link').href=url;
+  }catch(err){feedback('#notice',err.message);}
+  if(form.dataset.ready)return;form.dataset.ready='1';
+  form.addEventListener('submit',async e=>{
+    e.preventDefault();const btn=form.querySelector('button[type="submit"]');btn.disabled=true;
+    try{const r=await api('/api/auth/mfa/ativar','POST',fieldData(form));location.replace(linkFor(r.user.role));}
+    catch(err){feedback('#notice',err.message);}finally{btn.disabled=false;}
+  });
+  $('#mfa-back').addEventListener('click',async()=>{try{await api('/api/auth/logout','POST',{});}finally{session=null;location.replace('/acesso');}});
 }
 async function init(){
   installPasswordToggles();
@@ -97,11 +114,12 @@ async function init(){
   session=await api('/api/auth/me');
   const user=session.user;
   if(page==='acesso'){
-    if(user && !user.mustChangePassword){location.replace(linkFor(user.role));return;}
+    if(user && !user.mustChangePassword && !user.mfaRequired){location.replace(linkFor(user.role));return;}
     show($('#login-form'),!user);show($('#change-form'),Boolean(user?.mustChangePassword));
+    if(user && !user.mustChangePassword && user.mfaRequired) startMfaSetup();
     initLogin();return;
   }
-  if(!user || user.mustChangePassword){location.replace('/acesso');return;}
+  if(!user || user.mustChangePassword || user.mfaRequired){location.replace('/acesso');return;}
   if(page==='admin' && user.role!=='admin' || page==='cliente' && user.role!=='cliente' || page==='atendimento' && !['admin','atendimento'].includes(user.role)) {location.replace(linkFor(user.role));return;}
   document.body.classList.add('authorized');
   $('#who').textContent=`${user.name} • ${user.role}`;
@@ -146,11 +164,16 @@ function initLogin(){
     try{
       session=await api('/api/auth/login','POST',fieldData(loginForm));
       if(session.user.mustChangePassword){
-        hidePasswords();loginForm.reset();changeForm.reset();
+        hidePasswords();loginForm.reset();changeForm.reset();show($('#mfa-code'),false);
         show(loginForm,false);show(changeForm,true);
         feedback('#notice','Por segurança, troque a senha provisória. Se preferir, volte ao login para trocar de usuário.');
-      }else location.replace(linkFor(session.user.role));
-    }catch(err){displayBlocked(err.status===429);feedback('#notice',err.message);}finally{btn.disabled=false;}
+      }else if(session.user.mfaRequired){hidePasswords();loginForm.reset();show(loginForm,false);startMfaSetup();}
+      else location.replace(linkFor(session.user.role));
+    }catch(err){
+      displayBlocked(err.status===429);feedback('#notice',err.message);
+      // Senha certa e conta com verificação em duas etapas: mostra o campo do código.
+      if(err.mfa){show($('#mfa-code'),true);const campo=loginForm.querySelector('input[name="codigo"]');campo.value='';campo.focus();}
+    }finally{btn.disabled=false;}
   });
   // Permite sair do primeiro acesso, mesmo se o usuário esqueceu a senha provisória.
   $('#back-to-login').addEventListener('click',async e=>{

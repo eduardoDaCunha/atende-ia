@@ -19,7 +19,8 @@ const igual = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 
 // ------------------------------------------------------------------ conversão linha -> objeto
 const usuario = r => ({ id: r.id, username: r.usuario, name: r.nome, role: r.perfil, active: r.ativo, mustChangePassword: r.trocar_senha,
-  companyId: r.empresa_id || null, createdAt: iso(r.criado_em), hash: r.senha_hash, salt: r.senha_salt });
+  companyId: r.empresa_id || null, createdAt: iso(r.criado_em), hash: r.senha_hash, salt: r.senha_salt,
+  mfaEnabled: Boolean(r.mfa_ativo), mfaSecret: r.mfa_segredo || null, mfaPending: r.mfa_pendente || null });
 const empresa = r => ({ id: r.id, name: r.nome, city: r.cidade, uf: r.uf, timeZone: r.fuso_horario, contact: r.contato, notes: r.observacoes,
   state: r.situacao, createdAt: iso(r.criada_em),
   subscription: r.plano ? { plan: r.plano, status: r.sit_assinatura, setupCents: r.implantacao_centavos, monthlyCents: r.mensalidade_centavos,
@@ -85,11 +86,12 @@ function criar(env) {
       for (const u of lista) {
         const velho = antes.get(u.id);
         if (velho && igual(velho, u)) continue;
-        const v = [u.id, u.companyId || null, u.username, u.name, u.role, u.active, u.mustChangePassword, u.hash, u.salt];
-        if (!velho) await c.query(`INSERT INTO usuarios (id, empresa_id, usuario, nome, perfil, ativo, trocar_senha, senha_hash, senha_salt, criado_em)
-          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,coalesce($10::timestamptz, now()))`, [...v, u.createdAt || null]);
+        const v = [u.id, u.companyId || null, u.username, u.name, u.role, u.active, u.mustChangePassword, u.hash, u.salt,
+          Boolean(u.mfaEnabled), u.mfaSecret || null, u.mfaPending || null];
+        if (!velho) await c.query(`INSERT INTO usuarios (id, empresa_id, usuario, nome, perfil, ativo, trocar_senha, senha_hash, senha_salt,
+          mfa_ativo, mfa_segredo, mfa_pendente, criado_em) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,coalesce($13::timestamptz, now()))`, [...v, u.createdAt || null]);
         else await c.query(`UPDATE usuarios SET empresa_id=$2, usuario=$3, nome=$4, perfil=$5, ativo=$6, trocar_senha=$7, senha_hash=$8,
-          senha_salt=$9, atualizado_em=now() WHERE id=$1`, v);
+          senha_salt=$9, mfa_ativo=$10, mfa_segredo=$11, mfa_pendente=$12, atualizado_em=now() WHERE id=$1`, v);
       }
       return resultado;
     }),
@@ -278,7 +280,7 @@ function criar(env) {
     motor: 'postgres',
     async iniciar() {
       const v = await tx(SISTEMA, async c => (await c.query('SELECT max(versao)::int AS v FROM migracoes_esquema')).rows[0].v);
-      if (v < 2) throw new Error(`Esquema do banco desatualizado (versão ${v}). Rode: node dados/migrar.js`);
+      if (v < 3) throw new Error(`Esquema do banco desatualizado (versão ${v}). Rode: node dados/migrar.js`);
       // Sessões vencidas (8 h de vida, 30 min sem uso) são apagadas na partida.
       await tx(SISTEMA, c => c.query("DELETE FROM sessoes WHERE criada_em < now() - interval '8 hours' OR vista_em < now() - interval '30 minutes'"));
     },

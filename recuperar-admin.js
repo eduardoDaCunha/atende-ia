@@ -48,7 +48,8 @@ function portOpen(port){return new Promise(resolve=>{const s=net.connect({host:'
     await update(auth.USERFILE,items=>{
       const target=items.find(u=>u.id===chosen.id&&u.role==='admin');
       if(!target)throw Error('A conta mudou durante a operacao. Nada alterado.');
-      Object.assign(target,auth.hashPassword(password),{active:true,mustChangePassword:true});
+      // Celular perdido também é motivo de recuperação: a verificação em duas etapas é desligada e precisa ser ativada de novo.
+      Object.assign(target,auth.hashPassword(password),{active:true,mustChangePassword:true,mfaEnabled:false,mfaSecret:null,mfaPending:null});
     });
     if(NO_BANCO)await camada.auditoria.registrar('recuperacao_admin_offline','manutencao_local','Recuperacao offline: '+name);
     else await update('auditoria.json',events=>{events.push({at:new Date().toISOString(),action:'recuperacao_admin_offline',actor:'manutencao_local',detail:'Recuperacao offline: '+name});});

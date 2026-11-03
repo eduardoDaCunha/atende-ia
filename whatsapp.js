@@ -120,7 +120,11 @@ async function defaultAnswer(text, history, cfg) {
   const c = company(cfg);
   if (!AI_ENABLED) return demoAnswer(text, c);
   try { return await aiAnswer(text, history, c, 'whatsapp'); }
-  catch { return 'Desculpe, não consegui responder agora. Pode tentar de novo em instantes?'; }
+  catch (err) {
+    // Teto diário da IA: segue atendendo com as respostas prontas da empresa.
+    if (err.code === 'limite_ia') return demoAnswer(text, c);
+    return 'Desculpe, não consegui responder agora. Pode tentar de novo em instantes?';
+  }
 }
 // Sem servidor (testes do módulo): nada é guardado e o robô sempre responde.
 const semRegistro = { entrada: async () => ({modo:'robo'}), saida: async () => {} };

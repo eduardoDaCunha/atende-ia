@@ -11,7 +11,7 @@ const crypto = require('node:crypto');
 const zlib = require('node:zlib');
 const { read, update, ROOT, DATA, acquireServerLock } = require('./store');
 const auth = require('./auth');
-const { AI_ENABLED, MODEL, bad, str, company, normalize, siteAnswer, aiAnswer } = require('./resposta');
+const { AI_ENABLED, MODEL, bad, str, company, normalize, siteAnswer, aiAnswer, usoDaIA } = require('./resposta');
 const whatsapp = require('./whatsapp');
 const conversas = require('./conversas');
 // Camada de dados: JSON (local) ou PostgreSQL (produção), escolhida por ATENDE_BANCO.
@@ -117,6 +117,7 @@ function csrf(req, session) { if (!session || req.headers['x-csrf-token']!==sess
 function allow(session, roles) {
   if(!session) throw bad(401,'É necessário fazer login.');
   if(session.user.mustChangePassword) throw bad(403,'Troque sua senha provisória para continuar.');
+  if(auth.mfaRequired(session.user)) throw bad(403,'Ative a verificação em duas etapas para continuar.');
   if(!roles.includes(session.user.role)) throw bad(403,'Seu perfil não tem acesso a esta função.');
   return session.user;
 }
@@ -203,6 +204,8 @@ const assets={
   '/admin':['interno','admin.html','text/html; charset=utf-8']
 };
 function requirePage(pathname, s) {
+  // Admin sem verificação em duas etapas (quando obrigatória) só vê a tela de acesso, onde ativa.
+  if(s && auth.mfaRequired(s.user) && ['/empresas.js','/cidades.js','/municipios.json','/cliente','/atendimento','/admin'].includes(pathname)) return false;
   if(['/empresas.js','/cidades.js','/municipios.json'].includes(pathname)) return s && s.user.role==='admin' && !s.user.mustChangePassword;
   if(pathname==='/cliente') return s && s.user.role==='cliente' && !s.user.mustChangePassword;
   if(pathname==='/atendimento') return s && ['atendimento','admin'].includes(s.user.role) && !s.user.mustChangePassword;
@@ -373,7 +376,7 @@ const server=http.createServer(async (req,res)=>{
       if (pathname==='/api/admin/health') {
         allow(s,['admin']);const users=await D.usuarios.listar(),total=(await D.solicitacoes.contar(null)).total;
         const saude=await D.saude();
-        return json(res,200,{mode:SITE_ORIGIN?'Publicado em '+SITE_ORIGIN:'LOCAL — não publicar',users:users.length,requests:total,sessions:MOTOR==='json'?'somente na memória':'no banco de dados',database:saude.descricao,ai:AI_ENABLED});
+        return json(res,200,{mode:SITE_ORIGIN?'Publicado em '+SITE_ORIGIN:'LOCAL — não publicar',users:users.length,requests:total,sessions:MOTOR==='json'?'somente na memória':'no banco de dados',database:saude.descricao,ai:AI_ENABLED,iaHoje:(u=>`${u.total} de ${u.limiteDia} chamadas (site: ${u.site} de ${u.limiteSiteDia})`)(usoDaIA()),verificacaoDuasEtapas:auth.MFA_ADMIN?'obrigatória para administradores':'opcional (ATENDE_MFA_ADMIN=1 para exigir)'});
       }
     }
     if (req.method!=='POST' && req.method!=='PUT') throw bad(404,'Rota não encontrada.');
@@ -397,6 +400,17 @@ const server=http.createServer(async (req,res)=>{
         await logLoginAttempt(username,'falha',justLocked?'Limite de 5 tentativas incorretas atingido':'Usuário inexistente, inativo ou senha incorreta');
         await audit(justLocked?'login_bloqueio_acionado':'login_falhou',username,justLocked?'Conta temporariamente bloqueada':'Credenciais inválidas');
         throw bad(401,'Usuário ou senha inválidos.');
+      }
+      if(user.mfaEnabled) {
+        const codigo=str(input.codigo,10);
+        // Senha certa, falta o código: o front mostra o campo. Código errado conta como tentativa falha.
+        if(!codigo) return json(res,401,{error:'Digite o código de 6 dígitos do seu aplicativo autenticador.',mfa:true});
+        if(!auth.verifyTotp(user.mfaSecret,codigo,user.id)) {
+          auth.fail(username);
+          await logLoginAttempt(username,'falha','Código de verificação em duas etapas incorreto');
+          await audit('login_mfa_falhou',username,'Código incorreto');
+          return json(res,401,{error:'Código incorreto ou expirado. Use o código atual do aplicativo.',mfa:true});
+        }
       }
       auth.forget(username);await auth.clearSession(req,res);
       const csrfToken=await auth.newSession(res,user);
@@ -429,6 +443,22 @@ const server=http.createServer(async (req,res)=>{
     if (!s) throw bad(401,'Sessão encerrada. Entre novamente.');
     csrf(req,s);
     if(pathname==='/api/auth/logout') { await auth.clearSession(req,res);await audit('logout',s.user.username);return json(res,200,{ok:true}); }
+    // Verificação em duas etapas: iniciar gera um segredo pendente; ativar confirma com um código válido.
+    if(pathname==='/api/auth/mfa/iniciar') {
+      if(s.user.mustChangePassword) throw bad(403,'Troque sua senha provisória primeiro.');
+      if(s.user.mfaEnabled) throw bad(409,'A verificação em duas etapas já está ativa.');
+      const segredo=auth.newMfaSecret();
+      await D.usuarios.atualizarLista(users=>{ const u=users.find(x=>x.id===s.user.id); u.mfaPending=segredo; });
+      return json(res,200,{segredo:segredo.match(/.{1,4}/g).join(' '),url:auth.otpauthUrl(segredo,s.user.username)});
+    }
+    if(pathname==='/api/auth/mfa/ativar') {
+      const atual=await D.usuarios.obter(s.user.id);
+      if(!atual?.mfaPending) throw bad(400,'Comece a configuração novamente.');
+      if(!auth.verifyTotp(atual.mfaPending,str(input.codigo,10),atual.id)) throw bad(400,'Código incorreto. Confira se o horário do celular está automático e use o código atual.');
+      await D.usuarios.atualizarLista(users=>{ const u=users.find(x=>x.id===s.user.id); Object.assign(u,{mfaSecret:u.mfaPending,mfaPending:null,mfaEnabled:true}); });
+      await audit('mfa_ativada',s.user.username);
+      return json(res,200,{ok:true,user:auth.safeUser({...atual,mfaEnabled:true})});
+    }
     if(pathname==='/api/auth/change-password') {
       if(typeof input.currentPassword!=='string' || !auth.verifyPassword(input.currentPassword,s.user)) throw bad(401,'Senha atual incorreta.');
       if(!auth.passwordValid(input.newPassword)) throw bad(400,'A nova senha deve ter 12 a 128 caracteres.');

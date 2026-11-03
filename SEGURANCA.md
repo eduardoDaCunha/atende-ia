@@ -18,13 +18,13 @@ Os contadores ficam na memória e reiniciam com o processo. Estas cotas não se 
 
 - [ ] Proteção de borda: proxy/CDN com limitação de tráfego e mitigação DDoS; origem inacessível diretamente.
 - [x] Definir proxies confiáveis e identidade do visitante sem aceitar IP falsificado (`ATENDE_PROXY_CONFIAVEL=1`, só conexões do próprio computador; teste `proxy-confiavel`).
-- [ ] Limites distribuídos por usuário/empresa/rota; orçamento de IA, limite simultâneo e interrupção por consumo.
+- [ ] Limites distribuídos por usuário/empresa/rota. Feito: teto diário de chamadas da IA (geral e do chat do site), com respostas prontas acima do teto (`ATENDE_IA_LIMITE_DIA`, `ATENDE_IA_LIMITE_SITE_DIA`; contagem na memória do processo).
 - [ ] Limitar fila de gravações, volume de registros, sessões e mensagens; retenção e paginação.
 - [ ] Revisar o webhook separadamente: conexões, fila de processamento, eventos assinados, repetição e consumo.
 - [x] Migrar JSON para banco transacional com pool limitado, índices e tempo máximo de consultas (PostgreSQL, `dados/postgres.js`; cotas por empresa ainda pendentes).
 - [ ] Revisar autorização por empresa, XSS, CSRF, injeções, uploads e tratamento de segredos.
 - [ ] Monitoramento de recursos, erros, bloqueios e espaço em disco sem registrar conteúdo sensível.
-- [ ] Hospedagem isolada, autenticação reforçada, backups e restauração comprovada. Feito: VM própria, container sem root e só leitura, backup diário com teste de leitura, restauração testada localmente. Falta: MFA e teste de restauração no servidor real.
+- [ ] Hospedagem isolada, autenticação reforçada, backups e restauração comprovada. Feito: VM própria, container sem root e só leitura, backup diário com teste de leitura, restauração testada localmente. Verificação em duas etapas (TOTP) obrigatória para admin com `ATENDE_MFA_ADMIN=1`. Falta: teste de restauração no servidor real.
 - [ ] Testes de concorrência, conexões lentas, carga e revisão de segurança em ambiente isolado.
 
 ## Verificação

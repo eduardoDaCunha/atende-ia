@@ -99,7 +99,8 @@ docker compose up -d
 docker compose logs -f app caddy     # Ctrl+C para sair dos logs
 ```
 
-Abra `https://seudominio.com.br/acesso`, entre com o admin e troque a senha provisória.
+Abra `https://seudominio.com.br/acesso`, entre com o admin, troque a senha provisória e ative a **verificação em duas etapas**
+(o painel pede; use Google Authenticator ou similar e guarde a chave). Celular perdido: `docker compose run --rm -it app node recuperar-admin.js`.
 
 **Trazer os dados do protótipo (opcional):** copie a pasta `data` do Windows para a VM (por exemplo com `scp`)
 e rode a importação, que pode ser repetida sem duplicar nada:

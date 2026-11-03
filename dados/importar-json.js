@@ -59,9 +59,10 @@ async function importar({ pasta = process.env.ATENDE_DATA_DIR, url = process.env
     }
     for (const u of usuarios) {
       const empresa = u.role === 'admin' ? null : (u.companyId || LEGADO);
-      await um('usuarios', `INSERT INTO usuarios (id, empresa_id, usuario, nome, perfil, ativo, trocar_senha, senha_hash, senha_salt, criado_em)
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,coalesce($10::timestamptz, now())) ON CONFLICT (id) DO NOTHING`,
-        [u.id, empresa, u.username, u.name, u.role, u.active !== false, Boolean(u.mustChangePassword), u.hash, u.salt, u.createdAt || null]);
+      await um('usuarios', `INSERT INTO usuarios (id, empresa_id, usuario, nome, perfil, ativo, trocar_senha, senha_hash, senha_salt, mfa_ativo, mfa_segredo, criado_em)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,coalesce($12::timestamptz, now())) ON CONFLICT (id) DO NOTHING`,
+        [u.id, empresa, u.username, u.name, u.role, u.active !== false, Boolean(u.mustChangePassword), u.hash, u.salt,
+          Boolean(u.mfaEnabled && u.mfaSecret), u.mfaEnabled ? u.mfaSecret : null, u.createdAt || null]);
     }
     for (const s of solicitacoes) {
       const empresa = s.companyId || LEGADO;
