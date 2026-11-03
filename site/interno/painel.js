@@ -264,7 +264,7 @@ async function initStaff(){
   $('#show-leads').addEventListener('click',async()=>{
     const target=$('#leads');show(target,target.classList.contains('hidden'));if(target.classList.contains('hidden'))return;
     target.replaceChildren();
-    try{const {items}=await api('/api/staff/leads');if(!items.length)target.append(el('p','Nenhum lead de demonstração.','muted'));
+    try{const {items}=await api('/api/staff/leads');if(!items.length)target.append(el('p','Nenhum pedido recebido pelo site.','muted'));
       items.forEach(x=>{const card=el('div',null,'item');card.append(el('strong',`${x.kind} • ${x.name||'Teste'}`),el('p',`Empresa/cidade: ${x.company||x.city||'Não informado'} • ${date(x.createdAt)}`),el('p',`Contato: ${x.phone||x.contact||'Não informado'} • ${x.service||x.need||''}`));target.append(card);});
     }catch(err){target.append(el('p',err.message));}
   });

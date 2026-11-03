@@ -246,7 +246,7 @@ function criar(env) {
       return c.query('INSERT INTO contatos_demonstracao (id, tipo, dados, consentimento, criado_em) VALUES ($1,$2,$3,$4,$5)', [id, tipo, resto, consent === true, createdAt]);
     }),
     listar: () => tx(SISTEMA, async c => (await c.query('SELECT * FROM contatos_demonstracao ORDER BY criado_em DESC LIMIT 500')).rows
-      .map(r => ({ id: r.id, ...r.dados, consent: r.consentimento, createdAt: iso(r.criado_em), kind: r.tipo === 'orcamento' ? 'orçamento (teste)' : 'comercial (teste)' }))),
+      .map(r => ({ id: r.id, ...r.dados, consent: r.consentimento, createdAt: iso(r.criado_em), kind: r.tipo === 'orcamento' ? 'orçamento' : 'comercial' }))),
   };
 
   // ---------------------------------------------------------------- configuração do agente

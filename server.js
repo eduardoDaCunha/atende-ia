@@ -327,7 +327,7 @@ const server=http.createServer(async (req,res)=>{
       }
       if (pathname==='/api/staff/leads') {
         const user=allow(s,['atendimento','admin']);requireCompany(user);
-        if(user.role!=='admin')return json(res,200,{items:[],notice:'Contatos antigos de demonstração não estão vinculados a empresas.'});
+        if(user.role!=='admin')return json(res,200,{items:[],notice:'Os pedidos do site são vistos só pela administração.'});
         return json(res,200,{items:(await D.contatos.listar()).sort((a,b)=>(b.createdAt||'').localeCompare(a.createdAt||''))});
       }
       // Conversas do WhatsApp: admin vê todas; atendimento só as da empresa do número.

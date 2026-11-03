@@ -128,7 +128,7 @@ function criar() {
       criar: (tipo, item) => update(tipo === 'orcamento' ? ARQ.orcamento : ARQ.comercial, list => { list.push(item); }),
       async listar() {
         const [orc, com] = await Promise.all([read(ARQ.orcamento), read(ARQ.comercial)]);
-        return [...orc.map(x => ({ ...x, kind: 'orçamento (teste)' })), ...com.map(x => ({ ...x, kind: 'comercial (teste)' }))];
+        return [...orc.map(x => ({ ...x, kind: 'orçamento' })), ...com.map(x => ({ ...x, kind: 'comercial' }))];
       },
     },
 
