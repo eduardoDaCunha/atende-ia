@@ -33,3 +33,6 @@ Atendimento com IA: site público (`site/publico`) e painel interno com perfis a
 - Monte DOM com `textContent`, nunca `innerHTML` com dados do usuário.
 - Antes de cada commit, confira `git status` e `git diff --cached`; não use `git add` em arquivos ignorados.
 - Ao mudar `painel.js` ou `painel.css`, atualize o `?v=` em todas as páginas de `site/interno`.
+
+## Equipe de agentes
+Regras e funcoes de cada agente: @EQUIPE-AGENTES.md
