@@ -9,9 +9,10 @@ const fs = require('node:fs/promises');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const zlib = require('node:zlib');
+const net = require('node:net');
 const { read, update, ROOT, DATA, acquireServerLock } = require('./store');
 const auth = require('./auth');
-const { AI_ENABLED, MODEL, bad, str, company, normalize, siteAnswer, aiAnswer, usoDaIA } = require('./resposta');
+const { AI_ENABLED, MODEL, bad, str, company, normalize, siteAnswer, demonstracaoAnswer, aiAnswer, usoDaIA } = require('./resposta');
 const whatsapp = require('./whatsapp');
 const conversas = require('./conversas');
 // Camada de dados: JSON (local) ou PostgreSQL (produção), escolhida por ATENDE_BANCO.
@@ -40,6 +41,11 @@ const SITE_ORIGIN = (()=>{
   return u.origin;
 })();
 const rate = new Map();
+// Cotas globais em tabela própria: nunca são descartadas quando a tabela por IP enche.
+const rateGlobal = new Map();
+// Tamanho máximo da tabela por IP. Cheia, as chaves mais antigas saem para dar lugar a IPs novos.
+const LIMITE_CHAVES = Number(process.env.ATENDE_LIMITE_CHAVES || 4096);
+if (!Number.isInteger(LIMITE_CHAVES) || LIMITE_CHAVES < 16 || LIMITE_CHAVES > 1_000_000) throw new Error('ATENDE_LIMITE_CHAVES inválido');
 let activeRequests = 0;
 const MAX_ACTIVE_REQUESTS = 32;
 // Apenas o hostname explicitamente configurado para Tailscale Serve e aceito.
@@ -66,9 +72,30 @@ const ALLOWED_ORIGINS = new Set([
 const PROXY_CONFIAVEL = process.env.ATENDE_PROXY_CONFIAVEL === '1';
 function visitante(req) {
   const peer=req.socket.remoteAddress||'unknown';
-  if(!PROXY_CONFIAVEL || !['127.0.0.1','::1','::ffff:127.0.0.1'].includes(peer)) return peer;
+  if(!PROXY_CONFIAVEL || !['127.0.0.1','::1','::ffff:127.0.0.1'].includes(peer)) return chaveDoIp(peer);
   const ultimo=String(req.headers['x-forwarded-for']||'').split(',').pop().trim();
-  return /^[0-9a-f.:]{3,45}$/i.test(ultimo) ? ultimo : peer;
+  return chaveDoIp(/^[0-9a-f.:]{3,45}$/i.test(ultimo) ? ultimo : peer);
+}
+// Chave de limite: IPv4 como está; IPv6 agrupado por /64 (um provedor entrega o /64 inteiro a um só cliente).
+function chaveDoIp(ip) {
+  ip=String(ip).replace(/%.*$/,'');
+  const v4=ip.match(/^::ffff:(\d{1,3}(?:\.\d{1,3}){3})$/i);
+  if(v4) return v4[1];
+  if(!net.isIPv6(ip)) return ip;
+  const [esq,dir]=ip.split('::');
+  const grupos=s=>s?s.split(':'):[];
+  const conta=g=>g.reduce((n,x)=>n+(x.includes('.')?2:1),0);
+  const todos=dir===undefined?grupos(esq):[...grupos(esq),...Array(8-conta(grupos(esq))-conta(grupos(dir))).fill('0'),...grupos(dir)];
+  return todos.slice(0,4).map(x=>parseInt(x,16).toString(16)).join(':')+'::/64';
+}
+// Cada categoria tem a própria cota global: excesso no site público não bloqueia login nem painel.
+// O webhook do WhatsApp roda em outra porta (whatsapp.js) e tem limites próprios lá.
+const API_PUBLICAS=new Set(['/api/status','/api/company','/api/chat','/api/chat-demo','/api/lead','/api/commercial-lead']);
+const COTA_GLOBAL={publico:1200,painel:600,login:300};
+function categoria(method, pathname) {
+  if(method==='POST' && pathname==='/api/auth/login') return 'login';
+  if(pathname.startsWith('/api/')) return API_PUBLICAS.has(pathname)?'publico':'painel';
+  return assets[pathname]?.[0]==='interno'?'painel':'publico';
 }
 function securityHeaders(res) {
   res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, private');
@@ -102,15 +129,20 @@ async function body(req, max=16_000) {
   if (!value || typeof value!=='object' || Array.isArray(value)) throw bad(400,'Conteúdo inválido.');
   return value;
 }
-function throttle(key, max=80, windowMs=60_000) {
-  const now=Date.now(), entry=rate.get(key);
-  // Não permitir crescimento ilimitado nem descartar bloqueios ainda ativos.
-  if (!entry && rate.size>=4096) {
-    for (const [k,v] of rate) if(now>=v.expires) rate.delete(k);
-    if(rate.size>=4096)return false;
+function throttle(key, max=80, windowMs=60_000, tabela=rate) {
+  const now=Date.now();
+  let entry=tabela.get(key);
+  // Janela vencida: a chave volta para o fim da fila (o Map guarda a ordem de inclusão).
+  if (entry && now>=entry.expires) { tabela.delete(key); entry=null; }
+  // Sem crescimento ilimitado: tabela cheia remove as vencidas e, se ainda faltar espaço,
+  // descarta as mais antigas (cerca de 10%) em vez de recusar IPs novos.
+  if (!entry && tabela.size>=LIMITE_CHAVES) {
+    for (const [k,v] of tabela) if(now>=v.expires) tabela.delete(k);
+    let sobra=tabela.size-LIMITE_CHAVES+Math.ceil(LIMITE_CHAVES/10);
+    if (tabela.size>=LIMITE_CHAVES) for (const k of tabela.keys()) { if(sobra--<=0) break; tabela.delete(k); }
   }
-  const value=entry && now<entry.expires ? {...entry, count:Math.min(entry.count+1,max+1)} : {at:now,expires:now+windowMs,count:1};
-  rate.set(key,value);
+  const value=entry ? {...entry, count:Math.min(entry.count+1,max+1)} : {at:now,expires:now+windowMs,count:1};
+  tabela.set(key,value);
   return value.count<=max;
 }
 function csrf(req, session) { if (!session || req.headers['x-csrf-token']!==session.csrf) throw bad(403,'Token de segurança inválido. Atualize a página.'); }
@@ -267,7 +299,8 @@ const server=http.createServer(async (req,res)=>{
     // Aplicar ANTES de autenticar, ler arquivos, interpretar JSON ou chamar IA.
     // Atrás do Caddy local (ATENDE_PROXY_CONFIAVEL=1), o IP vem do X-Forwarded-For; sem isso, do par TCP.
     const peer=visitante(req);
-    if(!throttle('global:requests',1200) || !throttle(`${peer}:requests`,600)) {
+    const cat=categoria(req.method,String(req.url||'').split('?')[0]);
+    if(!throttle(`global:${cat}`,COTA_GLOBAL[cat],60_000,rateGlobal) || !throttle(`${peer}:requests`,600)) {
       securityAlerts.record('rate_limit');
       res.setHeader('Retry-After','60');
       res.setHeader('Connection','close');
@@ -444,7 +477,9 @@ const server=http.createServer(async (req,res)=>{
         throw bad(429,'Muitas tentativas para esta conta. Tente novamente mais tarde.');
       }
       const user=await D.usuarios.contaAtiva(username);
-      if(!user || !auth.verifyPassword(password,user)) {
+      // Sempre roda o scrypt (contra um hash fictício se o usuário não existe): o tempo não revela quem existe.
+      const senhaCerta=await auth.verifyPasswordAsync(password,user||auth.HASH_FICTICIO);
+      if(!user || !senhaCerta) {
         auth.fail(username);
         const justLocked=Boolean(auth.lockInfo(username));
         await logLoginAttempt(username,'falha',justLocked?'Limite de 5 tentativas incorretas atingido':'Usuário inexistente, inativo ou senha incorreta');
@@ -477,6 +512,21 @@ const server=http.createServer(async (req,res)=>{
       // Se o modelo falhar, a base própria do site responde: o visitante não vê erro.
       try { return json(res,200,{answer:await aiAnswer(msg,history,await configAgente(null)),ai:true}); }
       catch { return json(res,200,{answer:siteAnswer(msg),ai:false}); }
+    }
+    // "Experimente agora": clínica fictícia (canal 'demo'), sem login. Origem, JSON e 16 KB já foram
+    // conferidos acima. Não grava nada e não loga o conteúdo; conta no teto do site (ATENDE_IA_LIMITE_SITE_DIA).
+    if(pathname==='/api/chat-demo') {
+      if (!throttle(`${visitante(req)}:chat-demo`,20)) { res.setHeader('Retry-After','60');throw bad(429,'Limite de mensagens. Aguarde um minuto.'); }
+      if(typeof input.message!=='string' || input.message.length>1000) throw bad(400,'Envie uma mensagem de até 1.000 caracteres.');
+      const msg=str(input.message,1000);
+      if(!msg) throw bad(400,'Digite uma mensagem.');
+      const history=(Array.isArray(input.history)?input.history.slice(-8):[])
+        .filter(h=>h&&['user','assistant'].includes(h.role)&&typeof h.text==='string')
+        .map(h=>({role:h.role,text:str(h.text,600)}));
+      if(!AI_ENABLED) return json(res,200,{answer:demonstracaoAnswer(msg),ai:false});
+      // Teto atingido, 15 s sem resposta ou falha do modelo: resposta pronta, sem detalhe interno.
+      try { return json(res,200,{answer:await aiAnswer(msg,history,null,'demo'),ai:true}); }
+      catch { return json(res,200,{answer:demonstracaoAnswer(msg),ai:false}); }
     }
     if(pathname==='/api/lead' || pathname==='/api/commercial-lead') {
       if (!throttle(`${visitante(req)}:lead`,15)) throw bad(429,'Muitos envios. Tente novamente mais tarde.');
@@ -739,6 +789,8 @@ async function start() {
   if (WPP) {
     // Mesmo processo (mesma fila de gravação), porta separada: o túnel só enxerga o webhook.
     const webhook=whatsapp.createWebhook(WPP,{
+      // Limite por IP do webhook com a mesma regra do painel (proxy confiável e IPv6 por /64).
+      ipDe:visitante,
       // Configuração própria da empresa do número; sem ela, a do site.
       answer:async (texto,historico)=>whatsapp.defaultAnswer(texto,historico,(WPP.companyId&&await D.configuracoes.obter(WPP.companyId))||await D.configuracoes.obter(null)),
       conversas:{

@@ -14,6 +14,32 @@ function verifyPassword(password, user) {
   const computed = hashPassword(password, user.salt).hash;
   return crypto.timingSafeEqual(Buffer.from(computed, 'hex'), Buffer.from(user.hash, 'hex'));
 }
+// Login: scrypt assíncrono (não trava o servidor), com no máximo 4 cálculos ao mesmo tempo; os demais esperam na fila.
+// As versões síncronas acima ficam para os scripts de linha de comando (CRIAR-ADMIN, RECUPERAR-ADMIN).
+const SCRYPT_SIMULTANEOS = 4;
+let scryptAtivos = 0;
+const scryptFila = [];
+function scryptAsync(password, salt) {
+  return new Promise((resolve, reject) => {
+    const rodar = () => {
+      scryptAtivos++;
+      crypto.scrypt(password, salt, 64, (err, buf) => {
+        scryptAtivos--;
+        const proximo = scryptFila.shift();
+        if (proximo) proximo();
+        err ? reject(err) : resolve(buf);
+      });
+    };
+    scryptAtivos < SCRYPT_SIMULTANEOS ? rodar() : scryptFila.push(rodar);
+  });
+}
+// Usuário inexistente é conferido contra este hash aleatório: o tempo de resposta não revela quem existe.
+const HASH_FICTICIO = Object.freeze({ salt: crypto.randomBytes(16).toString('hex'), hash: crypto.randomBytes(64).toString('hex') });
+async function verifyPasswordAsync(password, user) {
+  const salvo = Buffer.from(String(user?.hash || ''), 'hex');
+  const computed = await scryptAsync(String(password), Buffer.from(String(user?.salt || ''), 'hex'));
+  return salvo.length === computed.length && crypto.timingSafeEqual(computed, salvo);
+}
 function passwordValid(password) { return typeof password === 'string' && password.length >= 12 && password.length <= 128; }
 function generatePassword() { return crypto.randomBytes(18).toString('base64url') + 'aA1!'; }
 // ATENDE_MFA_ADMIN=1 (produção): administrador só usa o painel depois de ativar a verificação em duas etapas.
@@ -116,4 +142,4 @@ function blockedAccounts() {
   return result.sort((a,b)=>a.until.localeCompare(b.until));
 }
 function unblock(username) { const existed=Boolean(lockInfo(username));forget(username);return existed; }
-module.exports = { MFA_ADMIN, mfaRequired, newMfaSecret, verifyTotp, totp, otpauthUrl, hashPassword, verifyPassword, passwordValid, generatePassword, safeUser, newSession, clearSession, revokeUser, session, locked, fail, forget, lockInfo, blockedAccounts, unblock, ROLES, USERFILE };
+module.exports = { MFA_ADMIN, mfaRequired, newMfaSecret, verifyTotp, totp, otpauthUrl, hashPassword, verifyPassword, verifyPasswordAsync, HASH_FICTICIO, passwordValid, generatePassword, safeUser, newSession, clearSession, revokeUser, session, locked, fail, forget, lockInfo, blockedAccounts, unblock, ROLES, USERFILE };

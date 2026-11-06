@@ -2,7 +2,7 @@
 REM Roda todas as suites de teste. Deixe o servidor desligado antes.
 cd /d "%~dp0"
 set FALHAS=0
-for %%T in (smoke tailscale dados-permanentes atualizacoes-seguras whatsapp whatsapp-painel cidades agente-site diagnostico ferramentas mcp negocio protecao-requisicoes alertas-seguranca config-empresa proxy-confiavel mfa postgres) do call :rodar %%T
+for %%T in (smoke tailscale dados-permanentes atualizacoes-seguras whatsapp whatsapp-painel cidades agente-site diagnostico ferramentas mcp negocio protecao-requisicoes alertas-seguranca config-empresa proxy-confiavel mfa calculadora dados-empresa chat-demo login-tempo limites whatsapp-limites postgres) do call :rodar %%T
 echo.
 echo Falhas: %FALHAS%
 pause
