@@ -15,7 +15,7 @@
   <link rel="preload" href="/geist.woff2?v=1" as="font" type="font/woff2" crossorigin>
   <title>Atende.IA | Automação com IA e sistemas para empresas</title>
   <link rel="stylesheet" href="/style.css?v=063"><script src="/tema.js?v=1"></script><link rel="stylesheet" href="/tema.css?v=1">
-  <script src="/app.js?v=060" defer></script>
+  <script src="/app.js?v=061" defer></script>
 </head>
 <body>
   <a class="skip-link" href="#conteudo">Ir para o conteúdo</a>
@@ -28,6 +28,7 @@
         <a href="#produto">Produto</a>
         <a href="#servicos">Serviços</a>
         <a href="#como-funciona">Como funciona</a>
+        <a href="#experimente">Experimente</a>
         <a href="#faq">Dúvidas</a>
       </nav>
       <a class="btn btn-primary btn-small" href="#agente">Falar com o agente</a>
@@ -52,7 +53,7 @@
               <strong>Agente Atende.IA</strong>
               <span class="note">Tire suas dúvidas sobre automação e sistemas</span>
             </div>
-            <button class="icon-btn" id="restart" type="button">Reiniciar</button>
+            <button class="icon-btn" id="restart" data-restart type="button">Reiniciar</button>
           </div>
           <div id="chat" class="chat-history" role="log" aria-live="polite" aria-relevant="additions text" aria-label="Mensagens da conversa" tabindex="0"></div>
           <div class="quick-actions" aria-label="Sugestões de perguntas">
@@ -220,6 +221,39 @@
       </div>
     </section>
 
+    <section aria-labelledby="demo-title">
+      <div class="shell section split" id="experimente">
+        <div class="col-5">
+          <h2 id="demo-title">Experimente agora.</h2>
+          <p class="lede">Faça de conta que você é paciente de uma clínica e veja como o agente responde com o que foi cadastrado, sem inventar preço nem agenda.</p>
+          <p class="note">A Clínica Exemplo não existe de verdade e serve só para demonstração: nenhuma consulta é marcada. Não digite dados pessoais nem de saúde.</p>
+        </div>
+        <div class="col-7">
+          <section class="chat-card" id="experimente-chat" aria-label="Demonstração do agente com a Clínica Exemplo, que não existe de verdade">
+            <div class="chat-head">
+              <div>
+                <strong>Clínica Exemplo</strong>
+                <span class="note">Clínica de exemplo, só para demonstração</span>
+              </div>
+              <button class="icon-btn" data-restart type="button">Reiniciar</button>
+            </div>
+            <div class="chat-history" role="log" aria-live="polite" aria-relevant="additions text" aria-label="Mensagens da demonstração" tabindex="0"></div>
+            <div class="quick-actions" aria-label="Sugestões de perguntas para a clínica">
+              <button class="icon-btn" type="button" data-msg="Qual é o horário de atendimento?">Horário</button>
+              <button class="icon-btn" type="button" data-msg="Quais serviços vocês têm?">Serviços</button>
+              <button class="icon-btn" type="button" data-msg="Quero marcar uma consulta.">Marcar consulta</button>
+              <button class="icon-btn" type="button" data-msg="Quanto custa a consulta?">Quanto custa?</button>
+            </div>
+            <form class="chat-input">
+              <label for="demo-message" class="sr-only">Sua mensagem para a clínica de exemplo</label>
+              <input id="demo-message" maxlength="1000" autocomplete="off" placeholder="Pergunte algo à clínica" required>
+              <button class="btn btn-primary" type="submit">Enviar</button>
+            </form>
+          </section>
+        </div>
+      </div>
+    </section>
+
     <section class="band" aria-labelledby="business-title">
       <div class="shell section split" id="para-empresas">
         <div class="col-5">
@@ -282,6 +316,7 @@
           <li><a href="#agente">Agente</a></li>
           <li><a href="#produto">Produto</a></li>
           <li><a href="#servicos">Serviços</a></li>
+          <li><a href="#experimente">Experimente</a></li>
         </ul>
       </nav>
       <nav class="foot-col" aria-labelledby="foot-docs">

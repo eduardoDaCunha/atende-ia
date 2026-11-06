@@ -270,6 +270,7 @@ async function initStaff(){
   });
   await refreshStaff();
   await initWhatsApp();
+  await window.initDadosEmpresa?.();
 }
 async function refreshStaff(){
   const stats=await api('/api/staff/stats');const target=$('#stats');target.replaceChildren();
@@ -399,7 +400,7 @@ async function initAdmin(){
   $('#config-company').addEventListener('change',()=>{feedback('#config-feedback','');loadConfig().catch(err=>feedback('#config-feedback',err.message));});
   $('#refresh-audit').addEventListener('click',loadAudit);
   $('#refresh-security').addEventListener('click',loadSecurity);
-  await Promise.all([window.initAtendeCompanies?.()||Promise.resolve(),loadConfig(),loadAudit(),loadHealth(),loadSecurity()]);
+  await Promise.all([window.initAtendeCompanies?.()||Promise.resolve(),window.initDadosEmpresa?.()||Promise.resolve(),loadConfig(),loadAudit(),loadHealth(),loadSecurity()]);
   await loadUsers();
 }
 function showTemporary(password,username){

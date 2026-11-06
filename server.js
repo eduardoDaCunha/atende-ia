@@ -151,6 +151,46 @@ function subscription(input){
   return {plan,status,setupCents:moneyCents(input.setupCents),monthlyCents:moneyCents(input.monthlyCents),nextDueDate:safeDate(input.nextDueDate),updatedAt:new Date().toISOString(),paymentIntegration:false};
 }
 async function companyExists(companyId){return /^[a-f0-9-]{36}$/.test(companyId) && Boolean(await D.empresas.obter(companyId));}
+// Dados da empresa. Os limites cabem no teto de 16 KB por requisição e valem também no banco (esquema 004).
+const DADOS_VAZIOS={horario:'',endereco:'',servicos:[],perguntas:[],atualizadaEm:null};
+function textoDaEmpresa(valor,max,rotulo,variasLinhas=false){
+  if(valor===undefined||valor===null)return '';
+  if(typeof valor!=='string')throw bad(400,`${rotulo}: formato inválido.`);
+  const limpo=valor.replace(/\r\n?/g,'\n').replace(/[\u0000-\u0009\u000B-\u001F\u007F]/g,'').replace(/\n/g,variasLinhas?'\n':' ').trim();
+  if(limpo.length>max)throw bad(400,`${rotulo}: use no máximo ${max} caracteres.`);
+  return limpo;
+}
+function listaDaEmpresa(valor,max,rotulo,montar){
+  if(valor===undefined||valor===null)return [];
+  if(!Array.isArray(valor)||valor.length>max)throw bad(400,`${rotulo}: informe no máximo ${max} itens.`);
+  return valor.map(item=>{if(!item||typeof item!=='object'||Array.isArray(item))throw bad(400,`${rotulo}: formato inválido.`);return montar(item);}).filter(Boolean);
+}
+function dadosDaEmpresa(input){
+  return {
+    horario:textoDaEmpresa(input.horario,300,'Horário',true),
+    endereco:textoDaEmpresa(input.endereco,300,'Endereço'),
+    servicos:listaDaEmpresa(input.servicos,30,'Serviços',item=>{
+      const nome=textoDaEmpresa(item.nome,90,'Nome do serviço'),preco=textoDaEmpresa(item.preco,60,'Preço do serviço');
+      if(!nome&&!preco)return null; // linha em branco no formulário
+      if(!nome)throw bad(400,'Informe o nome de cada serviço com preço.');
+      return {nome,preco};
+    }),
+    perguntas:listaDaEmpresa(input.perguntas,15,'Perguntas',item=>{
+      const pergunta=textoDaEmpresa(item.pergunta,150,'Pergunta'),resposta=textoDaEmpresa(item.resposta,400,'Resposta',true);
+      if(!pergunta&&!resposta)return null;
+      if(!pergunta||!resposta)throw bad(400,'Cada pergunta frequente precisa de pergunta e resposta.');
+      return {pergunta,resposta};
+    })
+  };
+}
+// Atendimento: sempre a empresa da sessão, nunca a da requisição. Só o admin escolhe a empresa.
+async function empresaDosDados(user,pedida){
+  if(user.role!=='admin')return user.companyId;
+  const id=str(pedida,36);
+  if(!id)throw bad(400,'Escolha uma empresa.');
+  if(!await companyExists(id))throw bad(404,'Empresa não encontrada.');
+  return id;
+}
 // Atualização única de cadastros locais antigos: preserva usuários e chamados.
 // Dados anteriores vão para um ambiente de demonstração explicitamente identificado.
 async function migrateLegacy(){
@@ -185,6 +225,9 @@ const assets={
   '/login-bloqueado-meme.png':['publico','login-bloqueado-meme.png','image/png'],
   '/privacidade':['publico','privacidade.html','text/html; charset=utf-8'],
   '/termos':['publico','termos.html','text/html; charset=utf-8'],
+  '/calculadora':['publico','calculadora.html','text/html; charset=utf-8'],
+  '/calculadora.js':['publico','calculadora.js','text/javascript; charset=utf-8'],
+  '/calculadora.css':['publico','calculadora.css','text/css; charset=utf-8'],
   '/style.css':['publico','style.css','text/css; charset=utf-8'],
   '/app.js':['publico','app.js','text/javascript; charset=utf-8'],
   '/geist.woff2':['publico','geist.woff2','font/woff2'],
@@ -196,6 +239,7 @@ const assets={
   '/navegacao.js':['interno','navegacao.js','text/javascript; charset=utf-8'],
   '/navegacao.css':['interno','navegacao.css','text/css; charset=utf-8'],
   '/empresas.js':['interno','empresas.js','text/javascript; charset=utf-8'],
+  '/dados-empresa.js':['interno','dados-empresa.js','text/javascript; charset=utf-8'],
   '/cidades.js':['interno','cidades.js','text/javascript; charset=utf-8'],
   '/municipios.json':['interno','municipios.json','application/json; charset=utf-8'],
   '/acesso':['interno','acesso.html','text/html; charset=utf-8'],
@@ -205,8 +249,9 @@ const assets={
 };
 function requirePage(pathname, s) {
   // Admin sem verificação em duas etapas (quando obrigatória) só vê a tela de acesso, onde ativa.
-  if(s && auth.mfaRequired(s.user) && ['/empresas.js','/cidades.js','/municipios.json','/cliente','/atendimento','/admin'].includes(pathname)) return false;
+  if(s && auth.mfaRequired(s.user) && ['/empresas.js','/dados-empresa.js','/cidades.js','/municipios.json','/cliente','/atendimento','/admin'].includes(pathname)) return false;
   if(['/empresas.js','/cidades.js','/municipios.json'].includes(pathname)) return s && s.user.role==='admin' && !s.user.mustChangePassword;
+  if(pathname==='/dados-empresa.js') return s && ['atendimento','admin'].includes(s.user.role) && !s.user.mustChangePassword;
   if(pathname==='/cliente') return s && s.user.role==='cliente' && !s.user.mustChangePassword;
   if(pathname==='/atendimento') return s && ['atendimento','admin'].includes(s.user.role) && !s.user.mustChangePassword;
   if(pathname==='/admin') return s && s.user.role==='admin' && !s.user.mustChangePassword;
@@ -260,7 +305,7 @@ const server=http.createServer(async (req,res)=>{
     }
     if ((req.method==='GET'||req.method==='HEAD') && pathname==='/sitemap.xml' && SITE_ORIGIN) {
       const content='<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'
-        +[SITE_ORIGIN+'/',SITE_ORIGIN+'/privacidade',SITE_ORIGIN+'/termos'].map(x=>'<url><loc>'+x+'</loc></url>').join('\n')+'\n</urlset>';
+        +[SITE_ORIGIN+'/',SITE_ORIGIN+'/privacidade',SITE_ORIGIN+'/termos',SITE_ORIGIN+'/calculadora'].map(x=>'<url><loc>'+x+'</loc></url>').join('\n')+'\n</urlset>';
       res.writeHead(200,{'Content-Type':'application/xml; charset=utf-8','Cache-Control':'public, max-age=3600'});
       return res.end(req.method==='HEAD'?'':content);
     }
@@ -343,6 +388,11 @@ const server=http.createServer(async (req,res)=>{
         const c=await D.conversas.obter(escopoDo(user),wppMatch[1]);
         if(!c||!inCompany(user,c)) throw bad(404,'Conversa não encontrada.');
         return json(res,200,{item:conversas.completa(c)});
+      }
+      if (pathname==='/api/staff/dados-empresa') {
+        const user=allow(s,['atendimento','admin']);requireCompany(user);
+        const empresaId=await empresaDosDados(user,url.searchParams.get('empresa'));
+        return json(res,200,{dados:(await D.dadosEmpresa.obter(escopoDo(user),empresaId))||DADOS_VAZIOS,companyId:empresaId});
       }
       if (pathname==='/api/admin/plans') {allow(s,['admin']);return json(res,200,{plans:PLANS, statuses:SUB_STATUSES,automaticBilling:false});}
       if (pathname==='/api/admin/companies') {allow(s,['admin']);return json(res,200,{items:await D.empresas.listar()});}
@@ -537,6 +587,14 @@ const server=http.createServer(async (req,res)=>{
       allow(s,['admin','atendimento','cliente']);
       if(input.args!==undefined && (typeof input.args!=='object'||input.args===null||Array.isArray(input.args))) throw bad(400,'args deve ser um objeto.');
       return json(res,200,await ferramentas.executar(toolMatch[1],input.args||{},contextoFerramenta(s),typeof input.confirmacao==='string'?input.confirmacao:undefined));
+    }
+    if(pathname==='/api/staff/dados-empresa' && req.method==='PUT') {
+      const user=allow(s,['atendimento','admin']);requireCompany(user);
+      if(input.confirmed!==true)throw bad(400,'Confirme a ação para continuar.');
+      const empresaId=await empresaDosDados(user,input.companyId);
+      const dados=await D.dadosEmpresa.salvar(escopoDo(user),empresaId,dadosDaEmpresa(input));
+      await audit('dados_empresa_alterados',user.username,'Empresa '+empresaId); // nunca o conteúdo
+      return json(res,200,{ok:true,dados,companyId:empresaId});
     }
     const admin=allow(s,['admin']);
     if(pathname==='/api/admin/diagnostico' && req.method==='POST') {

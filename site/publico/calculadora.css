@@ -1,0 +1,44 @@
+/* Calculadora de perda de vendas. Usa as cores e medidas definidas em style.css. */
+.calc-layout { padding-block: clamp(40px, 5vw, 72px) var(--section); }
+.calc-titulo { font-size: var(--fs-h3); line-height: var(--lh-h3); font-weight: 600; letter-spacing: -0.02em; }
+
+.calc-form { display: grid; gap: 28px; max-width: 44em; }
+.calc-campo { display: grid; gap: 8px; }
+.calc-campo label { font-weight: 500; line-height: 1.35; }
+.calc-campo input { max-width: 20em; }
+.calc-campo input[aria-invalid="true"] { border: 2px solid var(--text); }
+
+.calc-erro { font-size: var(--fs-small); line-height: var(--lh-small); font-weight: 500; color: var(--text); }
+.calc-erro::before { content: "Atenção: "; }
+.calc-aviso { padding: 12px 14px; border: 1px solid var(--field); border-radius: var(--radius); }
+
+.calc-resultado {
+  display: grid;
+  gap: 20px;
+  padding: clamp(20px, 3vw, 32px);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--bg-band);
+}
+.calc-linhas > div {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 4px 16px;
+  padding-block: 12px;
+  border-top: 1px solid var(--line);
+}
+.calc-linhas dt { color: var(--text-2); }
+.calc-linhas dd { font-weight: 600; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.calc-destaque dt { color: var(--text); font-weight: 600; }
+.calc-destaque dd { font-size: clamp(1.5rem, 3vw, 2.25rem); line-height: 1.1; font-weight: 700; letter-spacing: -0.02em; color: var(--accent); }
+.calc-acao { justify-self: start; }
+
+@media (max-width: 960px) {
+  .calc-layout > .calc-resultado { margin-top: 40px; }
+}
+@media (max-width: 640px) {
+  .calc-campo input { max-width: none; }
+  .calc-acao { justify-self: stretch; }
+}

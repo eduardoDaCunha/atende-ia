@@ -33,6 +33,7 @@ const conversa = (r, mensagens = []) => ({ id: r.id, telefone: r.telefone, nome:
   mensagens: mensagens.map(m => ({ id: m.id, de: m.de, autor: m.autor, texto: m.texto, em: iso(m.criada_em), ...(m.id_meta ? { idMeta: m.id_meta } : {}) })) });
 const configuracao = r => ({ name: r.nome, assistantName: r.nome_assistente, serviceArea: r.area_atendimento, services: r.servicos,
   policy: r.politica, contact: r.contato, welcome: r.boas_vindas });
+const dadosDaEmpresa = r => ({ horario: r.horario, endereco: r.endereco, servicos: r.servicos, perguntas: r.perguntas, atualizadaEm: iso(r.atualizada_em) });
 
 const SQL_EMPRESAS = `SELECT e.*, a.plano, a.situacao AS sit_assinatura, a.implantacao_centavos, a.mensalidade_centavos,
   a.proximo_vencimento, a.vigente_desde, a.integracao_pagamento
@@ -263,6 +264,22 @@ function criar(env) {
       cfg.services, cfg.policy || '', cfg.contact || '', cfg.welcome || ''])),
   };
 
+  // ---------------------------------------------------------------- dados da empresa
+  // Sempre no escopo de quem pede (nunca SISTEMA): o RLS é a segunda barreira entre empresas.
+  const dadosEmpresa = {
+    obter: (escopo, empresaId) => tx(escopo, async c => {
+      const r = (await c.query('SELECT * FROM dados_empresa WHERE empresa_id = $1', [empresaId])).rows[0];
+      return r ? dadosDaEmpresa(r) : null;
+    }),
+    salvar: async (escopo, empresaId, d) => {
+      if (escopo && escopo.perfil !== 'admin' && escopo.empresaId !== empresaId) throw Object.assign(new Error('Empresa fora do seu acesso.'), { status: 403 });
+      return tx(escopo, async c => dadosDaEmpresa((await c.query(`INSERT INTO dados_empresa (empresa_id, horario, endereco, servicos, perguntas)
+        VALUES ($1,$2,$3,$4::jsonb,$5::jsonb) ON CONFLICT (empresa_id) DO UPDATE SET horario=excluded.horario, endereco=excluded.endereco,
+        servicos=excluded.servicos, perguntas=excluded.perguntas, atualizada_em=now() RETURNING *`,
+      [empresaId, d.horario, d.endereco, JSON.stringify(d.servicos), JSON.stringify(d.perguntas)])).rows[0]));
+    },
+  };
+
   // ---------------------------------------------------------------- sessões
   const sessoes = {
     criar: (chave, s) => tx(SISTEMA, c => c.query('INSERT INTO sessoes (chave, usuario_id, csrf, criada_em, vista_em) VALUES ($1,$2,$3,$4,$5)',
@@ -280,7 +297,7 @@ function criar(env) {
     motor: 'postgres',
     async iniciar() {
       const v = await tx(SISTEMA, async c => (await c.query('SELECT max(versao)::int AS v FROM migracoes_esquema')).rows[0].v);
-      if (v < 3) throw new Error(`Esquema do banco desatualizado (versão ${v}). Rode: node dados/migrar.js`);
+      if (v < 4) throw new Error(`Esquema do banco desatualizado (versão ${v}). Rode: node dados/migrar.js`);
       // Sessões vencidas (8 h de vida, 30 min sem uso) são apagadas na partida.
       await tx(SISTEMA, c => c.query("DELETE FROM sessoes WHERE criada_em < now() - interval '8 hours' OR vista_em < now() - interval '30 minutes'"));
     },
@@ -289,7 +306,7 @@ function criar(env) {
       const v = await tx(SISTEMA, async c => (await c.query('SHOW server_version')).rows[0].server_version);
       return { motor: 'postgres', descricao: `PostgreSQL ${v} com isolamento por empresa (RLS); backup diário pelo script de backup` };
     },
-    usuarios, empresas, solicitacoes, conversas, auditoria, tentativas, contatos, configuracoes, sessoes,
+    usuarios, empresas, solicitacoes, conversas, auditoria, tentativas, contatos, configuracoes, dadosEmpresa, sessoes,
     /** Leitura em lote no formato dos arquivos (ferramentas de negócio e MCP). */
     lerColecao: nome => tx(SISTEMA, async c => {
       if (nome === 'empresas.json') return (await c.query(SQL_EMPRESAS + ' ORDER BY e.criada_em')).rows.map(empresa);

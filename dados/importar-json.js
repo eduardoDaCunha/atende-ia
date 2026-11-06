@@ -99,6 +99,10 @@ async function importar({ pasta = process.env.ATENDE_DATA_DIR, url = process.env
     if (cfg) await um('configuração do agente', `INSERT INTO configuracoes_agente (id, empresa_id, nome, nome_assistente, area_atendimento, servicos, politica, contato, boas_vindas)
       VALUES ($1,NULL,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT (empresa_id) DO NOTHING`, [crypto.randomUUID(), cfg.name, cfg.assistantName, cfg.serviceArea || '',
       cfg.services, cfg.policy || '', cfg.contact || '', cfg.welcome || '']);
+    for (const [empresaId, d] of Object.entries(ler('dados-empresa.json', {})))
+      await um('dados da empresa', `INSERT INTO dados_empresa (empresa_id, horario, endereco, servicos, perguntas, atualizada_em)
+        VALUES ($1,$2,$3,$4::jsonb,$5::jsonb,coalesce($6::timestamptz, now())) ON CONFLICT (empresa_id) DO NOTHING`,
+      [empresaId, d.horario || '', d.endereco || '', JSON.stringify(d.servicos || []), JSON.stringify(d.perguntas || []), d.atualizadaEm || null]);
     await c.query('COMMIT');
   } catch (e) { await c.query('ROLLBACK').catch(() => {}); throw e; }
   finally { await c.end(); }
