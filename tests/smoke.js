@@ -44,7 +44,10 @@ const assert = require('node:assert/strict');
     const publicFiles=new Set([...publicPages.matchAll(/(?:src|srcset|href|url\()=?["(]?"?(\/[\w.-]+\.\w+)/g)].map(m=>m[1]));
     assert.ok(publicFiles.has('/geist.woff2')&&publicFiles.has('/style.css'),'Arquivos públicos encontrados nas páginas');
     for(const file of publicFiles) assert.equal((await call(file)).status,200,`${file} citado nas páginas e sem rota`);
-    assert.equal(/fict[ií]ci|prot[oó]tipo|simula[cç]|em desenvolvimento|ambiente de testes/i.test(publicPages),false,'Site público não expõe textos internos');
+    // Exceção: só as duas frases exatas do aviso da demonstração "Experimente agora" podem dizer "fictícios".
+    const avisosDemo=['Esta é uma demonstração com dados fictícios. Nenhum pedido é registrado. Não digite dados pessoais.','aria-label="Demonstração do agente com dados fictícios"'];
+    for(const aviso of avisosDemo) assert.ok(publicPages.includes(aviso),`Aviso da demonstração presente: ${aviso}`);
+    assert.equal(/fict[ií]ci|prot[oó]tipo|simula[cç]|em desenvolvimento|ambiente de testes/i.test(avisosDemo.reduce((t,aviso)=>t.split(aviso).join(''),publicPages)),false,'Site público não expõe textos internos');
     const pedido=await call('/api/commercial-lead','POST',{company:'Empresa Exemplo',name:'Nome Exemplo',contact:'contato@exemplo.com',need:'Automatizar atendimento',consent:true});
     assert.equal(pedido.status,201,'Formulário de contato registra o pedido');
     const agente=await call('/api/chat','POST',{message:'Serve para uma clínica?'});

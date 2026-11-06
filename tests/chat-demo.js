@@ -34,7 +34,35 @@ async function subir(extra){
 const json=(origin,corpo,headers={})=>({method:'POST',headers:{Origin:origin,'Content-Type':'application/json',...headers},body:typeof corpo==='string'?corpo:JSON.stringify(corpo)});
 async function chamar(origin,opcoes){const r=await fetch(origin+'/api/chat-demo',opcoes);return {status:r.status,corpo:await r.json().catch(()=>null)};}
 
+// Textos da demonstração: lembrete fixo uma única vez no fim de toda resposta, dentro do limite de 1.200.
+function testarTextos(){
+  const {LEMBRETE_DEMO,comLembreteDemo,demonstracaoAnswer}=require(path.join(root,'resposta.js'));
+  assert.equal(LEMBRETE_DEMO,'Esses dados são fictícios: o agente configurado e treinado com as informações da sua empresa dará respostas precisas.');
+  const perguntas=['Qual é o horário de atendimento?','Quais serviços vocês têm?','Quero marcar uma consulta.','Quanto custa a consulta?','Você é um robô?','Quero falar com um atendente','Aceita convênio?','Qual o endereço?','Estou com dor','Obrigado','Oi','Qual a capital da França?'];
+  for(const p of perguntas){
+    const r=demonstracaoAnswer(p);
+    assert.ok(r.endsWith(' '+LEMBRETE_DEMO),`Lembrete no fim: ${p}`);
+    assert.equal(r.split(LEMBRETE_DEMO).length,2,`Lembrete uma única vez: ${p}`);
+    assert.ok(!/não existe de verdade|nenhum horário é marcado/.test(r),`Sem o aviso antigo: ${p}`);
+  }
+  assert.equal(demonstracaoAnswer('Quero marcar uma consulta.'),'Em uma operação real, eu registraria o seu pedido de consulta para a recepção confirmar. '+LEMBRETE_DEMO);
+  // Resposta da IA que já termina com o lembrete (ou o repete) não duplica; resposta longa respeita 1.200.
+  assert.equal(comLembreteDemo('Abrimos às 8h. '+LEMBRETE_DEMO),'Abrimos às 8h. '+LEMBRETE_DEMO);
+  assert.equal(comLembreteDemo('Abrimos às 8h. '+LEMBRETE_DEMO+' '+LEMBRETE_DEMO),'Abrimos às 8h. '+LEMBRETE_DEMO);
+  const longa=comLembreteDemo('a'.repeat(5000));
+  assert.ok(longa.length<=1200&&longa.endsWith(LEMBRETE_DEMO),'Resposta longa cortada antes do lembrete');
+  assert.equal(comLembreteDemo(''),LEMBRETE_DEMO);
+}
+async function testarPagina(){
+  const html=await fs.readFile(path.join(root,'site','publico','index.html'),'utf8');
+  assert.ok(html.includes('Veja na prática como o agente atende os seus clientes. Faça uma pergunta como se fosse um cliente e veja a resposta construída só com os dados cadastrados, sem inventar preço nem agenda.'));
+  assert.ok(html.includes('Esta é uma demonstração com dados fictícios. Nenhum pedido é registrado. Não digite dados pessoais.'));
+  assert.ok(!/paciente|não existe de verdade|nenhuma consulta é marcada/.test(html),'Textos antigos removidos da página');
+}
+
 (async()=>{
+  testarTextos();
+  await testarPagina();
   // 1) Sem chave do Gemini: resposta pronta da clínica fictícia e todos os limites.
   let s=await subir({});
   try{
