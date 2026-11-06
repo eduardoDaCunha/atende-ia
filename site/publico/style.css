@@ -555,6 +555,21 @@ h3 {
 .chat-head strong { display: block; font-weight: 600; letter-spacing: -0.01em; }
 .chat-head .note { display: block; }
 
+/* Chamada para a calculadora, abaixo do chat do "Experimente agora". Cores pelas variáveis: vale nos dois temas. */
+.cta-calculadora {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+  margin-top: 24px;
+  padding: clamp(20px, 2.4vw, 28px);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+.cta-calculadora h3 { color: var(--text); font-weight: 600; letter-spacing: -0.01em; }
+.cta-calculadora .btn { margin-top: 4px; }
+
 .chat-history {
   display: flex;
   flex-direction: column;
@@ -723,6 +738,7 @@ dialog::backdrop { background: var(--backdrop); }
   .chat-history { height: 360px; padding: 16px; }
   .chat-head, .chat-input, .chat-bottom { padding-inline: 16px; }
   .quick-actions { padding-inline: 16px; }
+  .cta-calculadora .btn { width: 100%; }
   .matrix th, .matrix td { padding-block: 12px; font-size: 0.8125rem; }
 }
 

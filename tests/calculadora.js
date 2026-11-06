@@ -96,7 +96,20 @@ async function testarPagina() {
     for (const arquivo of citados) assert.equal((await pedir(arquivo)).status, 200, `${arquivo} sem rota`);
     assert.doesNotMatch(pagina.corpo, /<script(?![^>]*\bsrc=)/i, 'Sem script embutido além do que o servidor injeta');
     assert.doesNotMatch(pagina.corpo, /<style|\sstyle=|\son[a-z]+=/i, 'Sem estilo ou evento embutido');
-    assert.match((await pedir('/')).corpo, /id="agente"/, 'O botão da página leva a um destino que existe');
+    const inicial = (await pedir('/')).corpo;
+    assert.match(inicial, /id="agente"/, 'O botão da página leva a um destino que existe');
+
+    // Página inicial: cartão de chamada logo abaixo do chat do "Experimente agora", com link para /calculadora.
+    const experimente = inicial.slice(inicial.indexOf('id="experimente"'));
+    const cartao = experimente.match(/<aside class="cta-calculadora"[^>]*>([\s\S]*?)<\/aside>/);
+    assert.ok(cartao, 'Cartão da calculadora na seção Experimente agora');
+    assert.ok(experimente.indexOf('id="experimente-chat"') < experimente.indexOf('class="cta-calculadora"'), 'Cartão abaixo do chat');
+    assert.ok(cartao[1].includes('Quanto o atendimento lento custa para a sua empresa?'));
+    assert.ok(cartao[1].includes('Informe seus números e veja, em um minuto, quanto você deixa de ganhar por mês com mensagens sem resposta.'));
+    assert.match(cartao[1], /<a class="btn btn-secondary" href="\/calculadora">Abrir a calculadora<\/a>/, 'Link acessível para /calculadora');
+    assert.doesNotMatch(cartao[1], /\d+ ?%|R\$|garant/i, 'Sem estatística nem promessa');
+    assert.doesNotMatch(inicial, /<style|\sstyle=|\son[a-z]+=/i, 'Página inicial sem estilo ou evento embutido');
+    assert.match((await pedir('/style.css')).corpo, /\.cta-calculadora\s*\{/, 'Classe do cartão no CSS público');
 
     // Todo id citado por aria-describedby ou pelo script existe na página.
     const ids = new Set([...pagina.corpo.matchAll(/\sid="([^"]+)"/g)].map(m => m[1]));
