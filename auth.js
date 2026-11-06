@@ -17,6 +17,8 @@ function verifyPassword(password, user) {
 // Login: scrypt assíncrono (não trava o servidor), com no máximo 4 cálculos ao mesmo tempo; os demais esperam na fila.
 // As versões síncronas acima ficam para os scripts de linha de comando (CRIAR-ADMIN, RECUPERAR-ADMIN).
 const SCRYPT_SIMULTANEOS = 4;
+// Fila de espera limitada: lotada, o login é recusado na hora (503) em vez de esperar sem fim.
+const SCRYPT_FILA_MAX = 64;
 let scryptAtivos = 0;
 const scryptFila = [];
 function scryptAsync(password, salt) {
@@ -30,7 +32,9 @@ function scryptAsync(password, salt) {
         err ? reject(err) : resolve(buf);
       });
     };
-    scryptAtivos < SCRYPT_SIMULTANEOS ? rodar() : scryptFila.push(rodar);
+    if (scryptAtivos < SCRYPT_SIMULTANEOS) return rodar();
+    if (scryptFila.length >= SCRYPT_FILA_MAX) return reject(Object.assign(new Error('Fila de verificação de senha cheia.'), { status: 503, code: 'fila_scrypt' }));
+    scryptFila.push(rodar);
   });
 }
 // Usuário inexistente é conferido contra este hash aleatório: o tempo de resposta não revela quem existe.

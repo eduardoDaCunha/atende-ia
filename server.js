@@ -99,9 +99,11 @@ function chaveDoIp(ip) {
 // Cada categoria tem a própria cota global: excesso no site público não bloqueia login nem painel.
 // O webhook do WhatsApp roda em outra porta (whatsapp.js) e tem limites próprios lá.
 const API_PUBLICAS=new Set(['/api/status','/api/company','/api/chat','/api/chat-demo','/api/lead','/api/commercial-lead']);
-const COTA_GLOBAL={publico:1200,painel:600,login:300};
+// A demonstração tem cota própria: abuso no chat de teste não derruba o resto do site público.
+const COTA_GLOBAL={publico:1200,painel:600,login:300,demo:120};
 function categoria(method, pathname) {
   if(method==='POST' && pathname==='/api/auth/login') return 'login';
+  if(method==='POST' && pathname==='/api/chat-demo') return 'demo';
   if(pathname.startsWith('/api/')) return API_PUBLICAS.has(pathname)?'publico':'painel';
   return assets[pathname]?.[0]==='interno'?'painel':'publico';
 }
@@ -146,10 +148,13 @@ function throttle(key, max=80, windowMs=60_000, tabela=rate) {
   // descarta as mais antigas (cerca de 10%) em vez de recusar IPs novos.
   if (!entry && tabela.size>=LIMITE_CHAVES) {
     for (const [k,v] of tabela) if(now>=v.expires) tabela.delete(k);
+    // Saem primeiro as não bloqueadas: quem já está barrado não se livra do bloqueio enchendo a tabela.
+    // Só bloqueadas na tabela: a mais antiga sai, para a memória continuar limitada.
     let sobra=tabela.size-LIMITE_CHAVES+Math.ceil(LIMITE_CHAVES/10);
+    if (tabela.size>=LIMITE_CHAVES) for (const [k,v] of tabela) { if(sobra<=0) break; if(v.count<=v.max) { tabela.delete(k); sobra--; } }
     if (tabela.size>=LIMITE_CHAVES) for (const k of tabela.keys()) { if(sobra--<=0) break; tabela.delete(k); }
   }
-  const value=entry ? {...entry, count:Math.min(entry.count+1,max+1)} : {at:now,expires:now+windowMs,count:1};
+  const value=entry ? {...entry, count:Math.min(entry.count+1,max+1)} : {at:now,expires:now+windowMs,count:1,max};
   tabela.set(key,value);
   return value.count<=max;
 }
@@ -308,7 +313,18 @@ const server=http.createServer(async (req,res)=>{
     // Atrás do Caddy local (ATENDE_PROXY_CONFIAVEL=1), o IP vem do X-Forwarded-For; sem isso, do par TCP.
     const peer=visitante(req);
     const cat=categoria(req.method,String(req.url||'').split('?')[0]);
-    if(!throttle(`global:${cat}`,COTA_GLOBAL[cat],60_000,rateGlobal) || !throttle(`${peer}:requests`,600)) {
+    // Limites por IP primeiro: o que um IP já tem barrado não desconta da cota global de todos.
+    if(!throttle(`${peer}:requests`,600)) {
+      securityAlerts.record('rate_limit');
+      res.setHeader('Retry-After','60');
+      res.setHeader('Connection','close');
+      throw bad(429,'Muitas solicitações. Aguarde antes de tentar novamente.');
+    }
+    if(cat==='login' && !throttle(`${peer}:login`,40,15*60_000)) {
+      securityAlerts.record('login_limit');
+      res.setHeader('Retry-After','900');throw bad(429,'Muitas tentativas de acesso.');
+    }
+    if(!throttle(`global:${cat}`,COTA_GLOBAL[cat],60_000,rateGlobal)) {
       securityAlerts.record('rate_limit');
       res.setHeader('Retry-After','60');
       res.setHeader('Connection','close');
@@ -330,11 +346,6 @@ const server=http.createServer(async (req,res)=>{
     const host=String(req.headers.host||'').toLowerCase();
     if (!ALLOWED_HOSTS.has(host)) throw bad(403,'Endereço de acesso não permitido.');
     const url=new URL(req.url,'http://localhost'); const pathname=url.pathname;
-    // Login e chat também têm limite próprio antes de acessar os dados.
-    if(req.method==='POST' && pathname==='/api/auth/login' && !throttle(`${peer}:login`,40,15*60_000)) {
-      securityAlerts.record('login_limit');
-      res.setHeader('Retry-After','900');throw bad(429,'Muitas tentativas de acesso.');
-    }
     const s=await auth.session(req);
     if ((req.method==='GET'||req.method==='HEAD') && pathname==='/robots.txt') {
       // Local: não indexar protótipo. Produção: indexar apenas conteúdo público.
@@ -467,7 +478,7 @@ const server=http.createServer(async (req,res)=>{
       if (pathname==='/api/admin/health') {
         allow(s,['admin']);const users=await D.usuarios.listar(),total=(await D.solicitacoes.contar(null)).total;
         const saude=await D.saude();
-        return json(res,200,{mode:SITE_ORIGIN?'Publicado em '+SITE_ORIGIN:'LOCAL — não publicar',users:users.length,requests:total,sessions:MOTOR==='json'?'somente na memória':'no banco de dados',database:saude.descricao,ai:AI_ENABLED,iaHoje:(u=>`${u.total} de ${u.limiteDia} chamadas (site: ${u.site} de ${u.limiteSiteDia})`)(usoDaIA()),verificacaoDuasEtapas:auth.MFA_ADMIN?'obrigatória para administradores':'opcional (ATENDE_MFA_ADMIN=1 para exigir)'});
+        return json(res,200,{mode:SITE_ORIGIN?'Publicado em '+SITE_ORIGIN:'LOCAL — não publicar',users:users.length,requests:total,sessions:MOTOR==='json'?'somente na memória':'no banco de dados',database:saude.descricao,ai:AI_ENABLED,iaHoje:(u=>`${u.total} de ${u.limiteDia} chamadas (site: ${u.site} de ${u.limiteSiteDia}; demonstração: ${u.demo} de ${u.limiteDemoDia})`)(usoDaIA()),verificacaoDuasEtapas:auth.MFA_ADMIN?'obrigatória para administradores':'opcional (ATENDE_MFA_ADMIN=1 para exigir)'});
       }
     }
     if (req.method!=='POST' && req.method!=='PUT') throw bad(404,'Rota não encontrada.');
@@ -498,7 +509,12 @@ const server=http.createServer(async (req,res)=>{
       }
       const user=await D.usuarios.contaAtiva(username);
       // Sempre roda o scrypt (contra um hash fictício se o usuário não existe): o tempo não revela quem existe.
-      const senhaCerta=await auth.verifyPasswordAsync(password,user||auth.HASH_FICTICIO);
+      // Fila do scrypt lotada: recusa na hora (503) em vez de acumular logins esperando.
+      const senhaCerta=await auth.verifyPasswordAsync(password,user||auth.HASH_FICTICIO).catch(err=>{
+        if(err.code!=='fila_scrypt') throw err;
+        securityAlerts.record('overload');
+        res.setHeader('Retry-After','5');throw bad(503,'Servidor ocupado. Tente novamente em instantes.');
+      });
       if(!user || !senhaCerta) {
         auth.fail(username,ipLogin);
         const justLocked=auth.locked(username,ipLogin);
@@ -534,7 +550,7 @@ const server=http.createServer(async (req,res)=>{
       catch { return json(res,200,{answer:siteAnswer(msg),ai:false}); }
     }
     // "Experimente agora": clínica fictícia (canal 'demo'), sem login. Origem, JSON e 16 KB já foram
-    // conferidos acima. Não grava nada e não loga o conteúdo; conta no teto do site (ATENDE_IA_LIMITE_SITE_DIA).
+    // conferidos acima. Não grava nada e não loga o conteúdo; teto diário próprio (ATENDE_IA_LIMITE_DEMO_DIA).
     if(pathname==='/api/chat-demo') {
       if (!throttle(`${visitante(req)}:chat-demo`,20)) { res.setHeader('Retry-After','60');throw bad(429,'Limite de mensagens. Aguarde um minuto.'); }
       if(typeof input.message!=='string' || input.message.length>1000) throw bad(400,'Envie uma mensagem de até 1.000 caracteres.');

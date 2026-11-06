@@ -131,21 +131,26 @@ function systemPrompt(c, channel) {
 // tem um teto próprio menor, para que visitantes anônimos não consumam o que é dos clientes.
 const LIMITE_DIA = Number(process.env.ATENDE_IA_LIMITE_DIA || 1500);
 const LIMITE_SITE_DIA = Number(process.env.ATENDE_IA_LIMITE_SITE_DIA || 300);
-const usoIA = { dia: '', total: 0, site: 0, avisado: false };
+// A demonstração ("Experimente agora") tem teto próprio, menor e contado à parte do site:
+// abuso no chat de teste não derruba o chat verdadeiro do site.
+const LIMITE_DEMO_DIA = Number(process.env.ATENDE_IA_LIMITE_DEMO_DIA || 100);
+if (!Number.isInteger(LIMITE_DEMO_DIA) || LIMITE_DEMO_DIA < 0 || LIMITE_DEMO_DIA > 100_000) throw new Error('ATENDE_IA_LIMITE_DEMO_DIA inválido');
+const usoIA = { dia: '', total: 0, site: 0, demo: 0, avisado: {} };
 function hojeBrasil() { return new Date(Date.now() - 3 * 60 * 60_000).toISOString().slice(0, 10); }
 function reservarIA(channel) {
   const dia = hojeBrasil();
-  if (usoIA.dia !== dia) Object.assign(usoIA, { dia, total: 0, site: 0, avisado: false });
-  // O canal 'demo' também é de visitante anônimo: conta no mesmo teto do site.
-  const doSite = channel === 'site' || channel === 'demo';
-  const cheio = usoIA.total >= LIMITE_DIA || (doSite && usoIA.site >= LIMITE_SITE_DIA);
+  if (usoIA.dia !== dia) Object.assign(usoIA, { dia, total: 0, site: 0, demo: 0, avisado: {} });
+  // Site e demonstração contam no teto geral e cada um no próprio teto.
+  const doSite = channel === 'site', daDemo = channel === 'demo';
+  const cheio = usoIA.total >= LIMITE_DIA || (doSite && usoIA.site >= LIMITE_SITE_DIA) || (daDemo && usoIA.demo >= LIMITE_DEMO_DIA);
   if (cheio) {
-    if (!usoIA.avisado) { usoIA.avisado = true; console.error(`IA: teto diário atingido (${usoIA.total} chamadas; site ${usoIA.site}). Respostas prontas até amanhã.`); }
+    const qual = usoIA.total >= LIMITE_DIA ? 'geral' : channel;
+    if (!usoIA.avisado[qual]) { usoIA.avisado[qual] = true; console.error(`IA: teto diário atingido (${usoIA.total} chamadas; site ${usoIA.site}; demonstração ${usoIA.demo}). Respostas prontas até amanhã.`); }
     throw Object.assign(new Error('Teto diário da IA atingido.'), { status: 503, code: 'limite_ia' });
   }
-  usoIA.total++; if (doSite) usoIA.site++;
+  usoIA.total++; if (doSite) usoIA.site++; if (daDemo) usoIA.demo++;
 }
-function usoDaIA() { return { dia: usoIA.dia || hojeBrasil(), total: usoIA.total, site: usoIA.site, limiteDia: LIMITE_DIA, limiteSiteDia: LIMITE_SITE_DIA }; }
+function usoDaIA() { return { dia: usoIA.dia || hojeBrasil(), total: usoIA.total, site: usoIA.site, demo: usoIA.demo, limiteDia: LIMITE_DIA, limiteSiteDia: LIMITE_SITE_DIA, limiteDemoDia: LIMITE_DEMO_DIA }; }
 async function aiAnswer(message, history, c, channel='site') {
   reservarIA(channel);
   const contents=history.slice(-8).map(h=>({role:h.role==='assistant'?'model':'user',parts:[{text:str(h.text,600)}]}));

@@ -29,6 +29,12 @@ async function testarModulo(){
     const resultados=await Promise.all(Array.from({length:12},(_,i)=>auth.verifyPasswordAsync(i%2?'errada':'Senha-Ficticia-2026!',user)));
     assert.deepEqual(resultados,Array.from({length:12},(_,i)=>!(i%2)));
     assert.ok(pico>=2&&pico<=4,`No máximo 4 verificações simultâneas (pico ${pico})`);
+    // Fila limitada (4 rodando + 64 esperando): o excesso é recusado na hora com status 503.
+    const lote=await Promise.allSettled(Array.from({length:100},()=>auth.verifyPasswordAsync('errada',user)));
+    const recusadas=lote.filter(x=>x.status==='rejected');
+    assert.equal(lote.length-recusadas.length,68,'4 rodando + 64 na fila são atendidas');
+    assert.ok(recusadas.every(x=>x.reason.status===503&&x.reason.code==='fila_scrypt'),'Excesso recusado com 503');
+    assert.equal(await auth.verifyPasswordAsync('Senha-Ficticia-2026!',user),true,'Fila vazia volta a atender');
   }finally{crypto.scrypt=original;}
 }
 

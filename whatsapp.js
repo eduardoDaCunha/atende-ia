@@ -129,12 +129,18 @@ async function defaultAnswer(text, history, cfg) {
 // Sem servidor (testes do módulo): nada é guardado e o robô sempre responde.
 const semRegistro = { entrada: async () => ({modo:'robo'}), saida: async () => {} };
 
-// Limite por IP do webhook, antes de ler o corpo ou conferir a assinatura. A Meta reenvia o que receber 429.
+// Limite por IP do webhook só para o que vem SEM assinatura válida (GET de verificação, POST sem
+// X-Hub-Signature-256 ou com assinatura errada): lixo enviado pelo túnel não barra os eventos da Meta.
+// O que vem assinado fica limitado pelo teto de tamanho, pelas conexões e pelos tempos limite.
 const LIMITE_IP_MINUTO = 300;
 const LIMITE_IP_CHAVES = 1024;
 // ipDe(req): o server.js passa o visitante() dele (proxy confiável e IPv6 agrupado por /64).
 function createWebhook(config, { send=(to,text)=>graphSend(config,to,text), answer=defaultAnswer, conversas=semRegistro, log=console, ipDe=req=>req.socket.remoteAddress||'unknown' } = {}) {
-  const porIp = new Map();     // ip -> {expires, count}; cheia, descarta as chaves mais antigas
+  const porIp = new Map();     // ip -> {expires, count}; cheia, descarta primeiro as não bloqueadas
+  function ipBloqueado(ip) {
+    const entry = porIp.get(ip);
+    return !!entry && Date.now() < entry.expires && entry.count > LIMITE_IP_MINUTO;
+  }
   function ipDentroDoLimite(ip) {
     const now = Date.now();
     let entry = porIp.get(ip);
@@ -142,6 +148,7 @@ function createWebhook(config, { send=(to,text)=>graphSend(config,to,text), answ
     if (!entry && porIp.size >= LIMITE_IP_CHAVES) {
       for (const [k,v] of porIp) if (now >= v.expires) porIp.delete(k);
       let sobra = porIp.size - LIMITE_IP_CHAVES + Math.ceil(LIMITE_IP_CHAVES/10);
+      if (porIp.size >= LIMITE_IP_CHAVES) for (const [k,v] of porIp) { if (sobra <= 0) break; if (v.count <= LIMITE_IP_MINUTO) { porIp.delete(k); sobra--; } }
       if (porIp.size >= LIMITE_IP_CHAVES) for (const k of porIp.keys()) { if (sobra-- <= 0) break; porIp.delete(k); }
     }
     const value = entry ? {expires:entry.expires, count:Math.min(entry.count+1, LIMITE_IP_MINUTO+1)} : {expires:now+60_000, count:1};
@@ -226,10 +233,12 @@ function createWebhook(config, { send=(to,text)=>graphSend(config,to,text), answ
     let url;
     try { url = new URL(req.url, 'http://localhost'); } catch { return respond(res, 400); }
     if (url.pathname !== ROUTE) return respond(res, 404, 'Não encontrado.');
-    if (!ipDentroDoLimite(ipDe(req))) {
-      res.setHeader('Retry-After', '60'); res.setHeader('Connection', 'close');
-      return respond(res, 429, 'Muitas solicitações.');
-    }
+    const ip = ipDe(req);
+    const excesso = () => { res.setHeader('Retry-After', '60'); res.setHeader('Connection', 'close'); return respond(res, 429, 'Muitas solicitações.'); };
+    // GET e outros métodos não têm assinatura: contam no limite por IP.
+    if (req.method !== 'POST' && !ipDentroDoLimite(ip)) return excesso();
+    // POST sem assinatura de um IP já barrado: recusa sem ler o corpo.
+    if (req.method === 'POST' && !req.headers['x-hub-signature-256'] && ipBloqueado(ip)) return excesso();
     if (req.method === 'GET') {
       // Verificação do webhook pela Meta: devolve o desafio só com o token correto.
       const ok = url.searchParams.get('hub.mode') === 'subscribe' && sameSecret(url.searchParams.get('hub.verify_token') || '', config.verifyToken);
@@ -244,7 +253,8 @@ function createWebhook(config, { send=(to,text)=>graphSend(config,to,text), answ
       for await (const part of req) { size += part.length; if (size > MAX_BODY) return respond(res, 413); chunks.push(part); }
     } catch { return respond(res, 400); }
     const raw = Buffer.concat(chunks);
-    if (!validSignature(raw, req.headers['x-hub-signature-256'], config.appSecret)) return respond(res, 401, 'Assinatura inválida.');
+    // HMAC barato: só o que falha aqui conta no limite por IP.
+    if (!validSignature(raw, req.headers['x-hub-signature-256'], config.appSecret)) return ipDentroDoLimite(ip) ? respond(res, 401, 'Assinatura inválida.') : excesso();
     let payload;
     try { payload = JSON.parse(raw.toString('utf8')); } catch { return respond(res, 400); }
     // A Meta espera 200 rápido; a resposta ao cliente segue em segundo plano.

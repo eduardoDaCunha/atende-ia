@@ -37,6 +37,19 @@ const root=path.resolve(__dirname,'..');
 
     // Tabela cheia (64 chaves no teste): IPs novos continuam sendo atendidos.
     for(let i=1;i<=150;i++)assert.equal(await get('/api/auth/me',`203.0.113.${i}`),200,`IP novo ${i} atendido com a tabela cheia`);
+    // Tabela cheia descarta primeiro as chaves não bloqueadas: o /64 barrado no login continua barrado.
+    assert.equal(await login('2001:db8:1:2::99'),429,'Bloqueio ativo sobrevive à tabela cheia');
+
+    // Limite por IP antes da cota global: um IP insistindo no login não gasta a cota de login de todos.
+    for(let lote=0;lote<320;lote+=20)await Promise.all(Array.from({length:20},()=>login('192.0.2.200')));
+    assert.equal(await login('192.0.2.200'),429,'IP insistente barrado');
+    assert.equal(await login('192.0.2.201'),400,'Outro IP ainda consegue tentar entrar');
+
+    // Demonstração tem cota global própria (120/min), separada da cota do site público.
+    const demo=async ip=>{const r=await fetch(origin+'/api/chat-demo',{method:'POST',headers:{Origin:origin,'Content-Type':'application/json','X-Forwarded-For':ip},body:JSON.stringify({message:'Oi'})});await r.text();return r.status;};
+    for(let lote=0;lote<130;lote+=10)await Promise.all(Array.from({length:10},(_,j)=>demo(`198.18.0.${lote/10+1}`).then(s=>assert.ok([200,429].includes(s)))));
+    assert.equal(await demo('198.18.1.1'),429,'Cota global da demonstração esgotada');
+    assert.equal(await get('/api/status','198.18.1.2'),200,'Site público segue com a própria cota');
 
     // Site público esgotado (1200/min) por 5 IPs: login e painel seguem com cota própria.
     for(let lote=0;lote<1250;lote+=25)await Promise.all(Array.from({length:25},(_,j)=>get('/api/status',`198.51.100.${(lote+j)%5+1}`)));
@@ -45,7 +58,7 @@ const root=path.resolve(__dirname,'..');
     assert.equal(await login('192.0.2.12'),400,'Login tem cota própria');
     assert.equal(await get('/api/auth/me','192.0.2.13'),200,'Painel tem cota própria');
     assert.equal(await get('/api/staff/stats','192.0.2.14'),401,'API interna usa a cota do painel (pede login, não 429)');
-    console.log('OK: cotas separadas para site público, painel e login; tabela cheia descarta as chaves antigas; IPv6 agrupado por /64.');
+    console.log('OK: cotas separadas para site público, demonstração, painel e login; limite por IP antes da cota global; tabela cheia mantém os bloqueios; IPv6 agrupado por /64.');
   }finally{
     if(child && child.exitCode===null){child.kill();await new Promise(r=>child.once('exit',r));}
     await fs.rm(base,{recursive:true,force:true}).catch(()=>{});

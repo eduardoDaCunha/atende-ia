@@ -38,21 +38,29 @@ const {createWebhook,loadConfig,ROUTE}=require('../whatsapp');
     });
     assert.match(grande,/^HTTP\/1\.1 413/,'Content-Length acima do limite');
 
-    // Limite por IP: 300 por minuto; outro IP não é afetado. Vale também para assinatura inválida.
+    // Limite por IP (300 por minuto) só para o que vem sem assinatura válida; outro IP não é afetado.
+    const semAssinatura=ip=>fetch(base+ROUTE,{method:'POST',headers:{'Content-Type':'application/json','X-Teste-IP':ip},body:evento});
+    const assinaturaErrada=ip=>fetch(base+ROUTE,{method:'POST',headers:{'Content-Type':'application/json','X-Hub-Signature-256':'sha256='+'0'.repeat(64),'X-Teste-IP':ip},body:evento});
     let bloqueio=null;
     for(let lote=0;lote<320&&!bloqueio;lote+=20){
-      const r=await Promise.all(Array.from({length:20},()=>post('198.51.100.1')));
-      for(const x of r){await x.text();if(x.status===429&&!bloqueio)bloqueio=x;else if(x.status!==429)assert.equal(x.status,200);}
+      const r=await Promise.all(Array.from({length:20},()=>semAssinatura('198.51.100.1')));
+      for(const x of r){await x.text();if(x.status===429&&!bloqueio)bloqueio=x;else if(x.status!==429)assert.equal(x.status,401);}
     }
-    assert.ok(bloqueio,'Limite por IP no webhook');
+    assert.ok(bloqueio,'Limite por IP no webhook para o que vem sem assinatura');
     assert.equal(bloqueio.headers.get('retry-after'),'60');
-    const semAssinatura=await fetch(base+ROUTE,{method:'POST',headers:{'X-Teste-IP':'198.51.100.1'},body:evento});
-    assert.equal(semAssinatura.status,429,'Excesso é cortado antes de conferir a assinatura');
-    const outro=await post('198.51.100.2');
-    assert.equal(outro.status,200,'Outro IP segue atendido');
+    assert.equal((await assinaturaErrada('198.51.100.1')).status,429,'Assinatura errada também conta no limite');
+    assert.equal((await post('198.51.100.1')).status,200,'Evento com assinatura válida do mesmo IP não é barrado');
+    const verificacao=await fetch(base+ROUTE+'?hub.mode=subscribe&hub.verify_token=x&hub.challenge=1',{headers:{'X-Teste-IP':'198.51.100.1'}});
+    assert.equal(verificacao.status,429,'GET sem assinatura conta no limite');
+    assert.equal((await semAssinatura('198.51.100.2')).status,401,'Outro IP segue com a própria cota');
 
-    // Tabela de IPs cheia: IPs novos continuam sendo atendidos.
-    for(let i=0;i<1100;i+=50)await Promise.all(Array.from({length:50},(_,j)=>post(`203.0.${Math.floor((i+j)/250)}.${(i+j)%250}`).then(async r=>{await r.text();assert.equal(r.status,200);})));
-    console.log('OK: webhook com tempos limite, limite de conexões, corpo declarado grande recusado e limite por IP.');
+    // Assinados não gastam a cota: 400 eventos válidos de um IP, todos aceitos.
+    for(let lote=0;lote<400;lote+=50)await Promise.all(Array.from({length:50},()=>post('198.51.100.3').then(async r=>{await r.text();assert.equal(r.status,200);})));
+    assert.equal((await semAssinatura('198.51.100.3')).status,401,'Eventos assinados não consumiram a cota do IP');
+
+    // Tabela de IPs cheia: IPs novos continuam sendo atendidos e o IP barrado continua barrado.
+    for(let i=0;i<1100;i+=50)await Promise.all(Array.from({length:50},(_,j)=>semAssinatura(`203.0.${Math.floor((i+j)/250)}.${(i+j)%250}`).then(async r=>{await r.text();assert.equal(r.status,401);})));
+    assert.equal((await semAssinatura('198.51.100.1')).status,429,'Bloqueio ativo sobrevive à tabela cheia');
+    console.log('OK: webhook com tempos limite, limite de conexões, corpo declarado grande recusado e limite por IP só para o que vem sem assinatura válida.');
   }finally{server.close();server.closeAllConnections?.();}
 })().catch(err=>{console.error(err);process.exitCode=1;});

@@ -96,8 +96,8 @@ async function testarPagina(){
     assert.ok(!/Qual o horário|ignore as regras/.test(s.saida()),'Conteúdo não vai para o log');
   }finally{await s.parar();}
 
-  // 2) Com chave, mas teto do site zerado: não chama a IA e responde pronto, sem detalhe interno.
-  s=await subir({GEMINI_API_KEY:'chave-ficticia-de-teste',ATENDE_IA_LIMITE_SITE_DIA:'0'});
+  // 2) Com chave, mas teto próprio da demonstração zerado: não chama a IA e responde pronto, sem detalhe interno.
+  s=await subir({GEMINI_API_KEY:'chave-ficticia-de-teste',ATENDE_IA_LIMITE_DEMO_DIA:'0'});
   try{
     const r=await chamar(s.origin,json(s.origin,{message:'Vocês atendem pediatria?'}));
     assert.equal(r.status,200);
@@ -105,6 +105,7 @@ async function testarPagina(){
     assert.match(r.corpo.answer,/Clínica Exemplo/);
     assert.ok(!/teto|limite|Gemini|erro/i.test(JSON.stringify(r.corpo)),'Sem detalhe interno na resposta');
     assert.ok(!/Vocês atendem pediatria/.test(s.saida()),'Conteúdo não vai para o log');
+    assert.match(s.saida(),/teto diário atingido/,'Foi o teto da demonstração que barrou (a IA não foi chamada)');
   }finally{await s.parar();}
   console.log('OK: /api/chat-demo com origem, JSON, 16 KB, mensagem de 1.000, histórico limitado, limite por IP, teto da IA e resposta pronta; nada gravado nem logado.');
 })().catch(err=>{console.error(err);process.exitCode=1;});
