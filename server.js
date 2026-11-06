@@ -48,6 +48,14 @@ const LIMITE_CHAVES = Number(process.env.ATENDE_LIMITE_CHAVES || 4096);
 if (!Number.isInteger(LIMITE_CHAVES) || LIMITE_CHAVES < 16 || LIMITE_CHAVES > 1_000_000) throw new Error('ATENDE_LIMITE_CHAVES inválido');
 let activeRequests = 0;
 const MAX_ACTIVE_REQUESTS = 32;
+// Logins em atraso progressivo seguram uma vaga de MAX_ACTIVE_REQUESTS: no máximo 4 ao mesmo tempo.
+const MAX_LOGINS_ATRASADOS = 4;
+let loginsAtrasados = 0;
+// Pedidos de contato do site: 5 por IP por hora e teto global por dia (só na memória, sem IP em disco).
+const LIMITE_CONTATOS_IP_HORA = 5;
+const ROTULOS_CONTATO = {name:'nome',phone:'telefone',city:'cidade',service:'serviço',company:'empresa',contact:'contato',need:'necessidade'};
+const LIMITE_CONTATOS_DIA = Number(process.env.ATENDE_LIMITE_CONTATOS_DIA || 200);
+if (!Number.isInteger(LIMITE_CONTATOS_DIA) || LIMITE_CONTATOS_DIA < 1 || LIMITE_CONTATOS_DIA > 100_000) throw new Error('ATENDE_LIMITE_CONTATOS_DIA inválido');
 // Apenas o hostname explicitamente configurado para Tailscale Serve e aceito.
 // NUNCA aceitar qualquer *.ts.net e nunca confiar em X-Forwarded-Host.
 const TAILSCALE_HOST = String(process.env.TAILSCALE_HOST || '').trim().toLowerCase();
@@ -470,18 +478,30 @@ const server=http.createServer(async (req,res)=>{
     if (pathname==='/api/auth/login') {
       const username=str(input.username,30).toLowerCase(),password=input.password;
       if (!username || typeof password!=='string') throw bad(400,'Informe usuário e senha.');
-      if (auth.locked(username)) {
+      // Bloqueio por usuário + IP (quem acerta a senha em outro IP entra) e atraso progressivo por usuário.
+      const ipLogin=visitante(req);
+      if (auth.locked(username,ipLogin)) {
         securityAlerts.record('login_limit');
         await logLoginAttempt(username,'bloqueado','Conta temporariamente bloqueada por tentativas incorretas');
         await audit('login_bloqueado',username,'Tentativa durante bloqueio temporário');
         throw bad(429,'Muitas tentativas para esta conta. Tente novamente mais tarde.');
       }
+      const atraso=auth.loginDelay(username);
+      if(atraso) {
+        // Acima do limite, recusa na hora em vez de esperar (não acumula conexões presas).
+        if(loginsAtrasados>=MAX_LOGINS_ATRASADOS) {
+          securityAlerts.record('login_limit');
+          res.setHeader('Retry-After','60');throw bad(429,'Muitas tentativas de acesso. Aguarde um minuto.');
+        }
+        loginsAtrasados++;
+        try { await new Promise(r=>setTimeout(r,atraso)); } finally { loginsAtrasados--; }
+      }
       const user=await D.usuarios.contaAtiva(username);
       // Sempre roda o scrypt (contra um hash fictício se o usuário não existe): o tempo não revela quem existe.
       const senhaCerta=await auth.verifyPasswordAsync(password,user||auth.HASH_FICTICIO);
       if(!user || !senhaCerta) {
-        auth.fail(username);
-        const justLocked=Boolean(auth.lockInfo(username));
+        auth.fail(username,ipLogin);
+        const justLocked=auth.locked(username,ipLogin);
         await logLoginAttempt(username,'falha',justLocked?'Limite de 5 tentativas incorretas atingido':'Usuário inexistente, inativo ou senha incorreta');
         await audit(justLocked?'login_bloqueio_acionado':'login_falhou',username,justLocked?'Conta temporariamente bloqueada':'Credenciais inválidas');
         throw bad(401,'Usuário ou senha inválidos.');
@@ -491,13 +511,13 @@ const server=http.createServer(async (req,res)=>{
         // Senha certa, falta o código: o front mostra o campo. Código errado conta como tentativa falha.
         if(!codigo) return json(res,401,{error:'Digite o código de 6 dígitos do seu aplicativo autenticador.',mfa:true});
         if(!auth.verifyTotp(user.mfaSecret,codigo,user.id)) {
-          auth.fail(username);
+          auth.fail(username,ipLogin);
           await logLoginAttempt(username,'falha','Código de verificação em duas etapas incorreto');
           await audit('login_mfa_falhou',username,'Código incorreto');
           return json(res,401,{error:'Código incorreto ou expirado. Use o código atual do aplicativo.',mfa:true});
         }
       }
-      auth.forget(username);await auth.clearSession(req,res);
+      auth.forget(username,ipLogin);await auth.clearSession(req,res);
       const csrfToken=await auth.newSession(res,user);
       await logLoginAttempt(user.username,'sucesso','Autenticação realizada');
       await audit('login',user.username);
@@ -529,12 +549,19 @@ const server=http.createServer(async (req,res)=>{
       catch { return json(res,200,{answer:demonstracaoAnswer(msg),ai:false}); }
     }
     if(pathname==='/api/lead' || pathname==='/api/commercial-lead') {
-      if (!throttle(`${visitante(req)}:lead`,15)) throw bad(429,'Muitos envios. Tente novamente mais tarde.');
+      if (!throttle(`${visitante(req)}:lead`,15) || !throttle(`${visitante(req)}:lead-hora`,LIMITE_CONTATOS_IP_HORA,60*60_000)) { res.setHeader('Retry-After','3600');throw bad(429,'Muitos envios. Tente novamente mais tarde.'); }
+      // Campo isca (escondido no formulário): só robôs preenchem. Resposta igual à de sucesso, sem gravar nada.
+      if(input.site!==undefined && input.site!=='') return json(res,201,{ok:true});
       if(input.consent!==true) throw bad(400,'Confirme a autorização para continuar.');
       const isQuote=pathname==='/api/lead';
-      const data=isQuote?{name:str(input.name,90),phone:str(input.phone,30),city:str(input.city,90),service:str(input.service,150)}:{company:str(input.company,100),name:str(input.name,90),contact:str(input.contact,120),need:str(input.need,250)};
+      const limites=isQuote?{name:90,phone:30,city:90,service:150}:{company:100,name:90,contact:120,need:250};
+      // Campo grande demais é recusado (não cortado em silêncio).
+      for(const [campo,max] of Object.entries(limites)) if(input[campo]!==undefined && (typeof input[campo]!=='string' || input[campo].length>max)) throw bad(400,`O campo ${ROTULOS_CONTATO[campo]} aceita até ${max} caracteres.`);
+      const data=Object.fromEntries(Object.entries(limites).map(([campo,max])=>[campo,str(input[campo],max)]));
       if(Object.values(data).some(v=>v.length<2)) throw bad(400,'Preencha todos os campos.');
       if(isQuote && !/^[+()\d\s-]{10,30}$/.test(data.phone)) throw bad(400,'Telefone inválido.');
+      // Teto global por dia: contado só para pedidos válidos, para que lixo não esgote a cota.
+      if(!throttle('global:contatos',LIMITE_CONTATOS_DIA,24*60*60_000,rateGlobal)) { res.setHeader('Retry-After','3600');throw bad(429,'Recebemos muitos pedidos hoje. Tente novamente amanhã.'); }
       await D.contatos.criar(isQuote?'orcamento':'comercial',{id:crypto.randomUUID(),...data,consent:true,createdAt:new Date().toISOString()});
       return json(res,201,{ok:true});
     }
