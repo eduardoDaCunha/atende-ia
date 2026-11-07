@@ -116,13 +116,14 @@ function createSecurityAlerts(config, {env=process.env, send=graphSendPayload, n
   }
   return {record,flush,enabled:true};
 }
-async function defaultAnswer(text, history, cfg) {
+// dadosEmpresa: "Dados da empresa" do WHATSAPP_EMPRESA_ID (o server.js lê só dessa empresa), ou null.
+async function defaultAnswer(text, history, cfg, dadosEmpresa=null) {
   const c = company(cfg);
-  if (!AI_ENABLED) return demoAnswer(text, c);
-  try { return await aiAnswer(text, history, c, 'whatsapp'); }
+  if (!AI_ENABLED) return demoAnswer(text, c, dadosEmpresa);
+  try { return await aiAnswer(text, history, c, 'whatsapp', dadosEmpresa); }
   catch (err) {
     // Teto diário da IA: segue atendendo com as respostas prontas da empresa.
-    if (err.code === 'limite_ia') return demoAnswer(text, c);
+    if (err.code === 'limite_ia') return demoAnswer(text, c, dadosEmpresa);
     return 'Desculpe, não consegui responder agora. Pode tentar de novo em instantes?';
   }
 }

@@ -18,7 +18,7 @@ set "RAIZ=%RAIZ:\=/%"
 set "NODE_OPTIONS=--import=file:///%RAIZ%tests/preparar-pg.mjs"
 set FALHAS=0
 REM Sem dados-permanentes e atualizacoes-seguras: testam a troca de versao sobre os JSON, nao o banco.
-for %%T in (smoke tailscale whatsapp whatsapp-painel cidades agente-site diagnostico ferramentas mcp negocio protecao-requisicoes alertas-seguranca config-empresa proxy-confiavel mfa calculadora dados-empresa chat-demo login-tempo limites whatsapp-limites bloqueio-login contatos-protecao postgres) do call :rodar %%T
+for %%T in (smoke tailscale whatsapp whatsapp-painel cidades agente-site diagnostico ferramentas mcp negocio protecao-requisicoes alertas-seguranca config-empresa proxy-confiavel mfa calculadora dados-empresa dados-empresa-ia chat-demo login-tempo limites whatsapp-limites bloqueio-login contatos-protecao postgres) do call :rodar %%T
 set "NODE_OPTIONS="
 echo.
 echo Limpando os bancos temporarios atende_t_* ...

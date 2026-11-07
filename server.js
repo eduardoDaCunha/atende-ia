@@ -835,7 +835,9 @@ async function start() {
       // Limite por IP do webhook com a mesma regra do painel (proxy confiável e IPv6 por /64).
       ipDe:visitante,
       // Configuração própria da empresa do número; sem ela, a do site.
-      answer:async (texto,historico)=>whatsapp.defaultAnswer(texto,historico,(WPP.companyId&&await D.configuracoes.obter(WPP.companyId))||await D.configuracoes.obter(null)),
+      // "Dados da empresa": só os da empresa do número (escopo de atendimento, o RLS filtra); sem ela, nenhum.
+      answer:async (texto,historico)=>whatsapp.defaultAnswer(texto,historico,(WPP.companyId&&await D.configuracoes.obter(WPP.companyId))||await D.configuracoes.obter(null),
+        WPP.companyId?await D.dadosEmpresa.obter({perfil:'atendimento',empresaId:WPP.companyId},WPP.companyId).catch(()=>{console.error('WhatsApp: dados da empresa indisponíveis; respondendo sem eles.');return null;}):null),
       conversas:{
         entrada:msg=>D.conversas.registrarEntrada({telefone:msg.from,nome:msg.nome,texto:msg.texto,idMeta:msg.idMeta,pedeAtendente:conversas.pedeAtendente(msg.texto)},WPP.companyId),
         saida:msg=>D.conversas.registrarSaida({telefone:msg.to,texto:msg.texto,de:msg.de,autor:msg.autor},WPP.companyId)
