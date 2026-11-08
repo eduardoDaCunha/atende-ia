@@ -7,6 +7,8 @@ set "TAILSCALE_HOST=SEU-COMPUTADOR.SUA-TAILNET.ts.net"
 
 REM --- IA (opcional). Chave do Google AI Studio. Sem ela, respostas de demonstracao.
 set "GEMINI_API_KEY="
+REM Teto diario de chamadas da IA no chat de demonstracao ("Experimente agora"). Padrao: 100.
+REM set "ATENDE_IA_LIMITE_DEMO_DIA=100"
 
 REM --- WhatsApp Cloud API (Meta). Veja WHATSAPP-TESTE.md
 REM Token que VOCE inventa (minimo 16 caracteres) e cola tambem no painel da Meta.

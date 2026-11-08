@@ -68,3 +68,9 @@ button,.primary,.ghost,.link,.tag,.status,.loginbox .return-public{border-radius
 .city-options button{font-size:12px;padding:5px 9px;font-weight:650}
 /* Sugestões de cidade aumentam o campo: os vizinhos ficam alinhados pelo topo, sem descer. */
 .biz-form>label,.biz-form-grid>label{align-self:start}
+/* Dados da empresa: linhas de serviço e de pergunta frequente. */
+.dados-linha{display:grid;grid-template-columns:2fr 1fr auto;gap:10px;align-items:end}
+.dados-pergunta{grid-template-columns:1fr auto}
+.dados-pergunta label{grid-column:1}
+.dados-pergunta button{grid-column:2;grid-row:1/span 2}
+@media (max-width:640px){.dados-linha,.dados-pergunta{grid-template-columns:1fr}.dados-pergunta button{grid-column:1;grid-row:auto}}

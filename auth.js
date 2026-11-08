@@ -14,6 +14,36 @@ function verifyPassword(password, user) {
   const computed = hashPassword(password, user.salt).hash;
   return crypto.timingSafeEqual(Buffer.from(computed, 'hex'), Buffer.from(user.hash, 'hex'));
 }
+// Login: scrypt assíncrono (não trava o servidor), com no máximo 4 cálculos ao mesmo tempo; os demais esperam na fila.
+// As versões síncronas acima ficam para os scripts de linha de comando (CRIAR-ADMIN, RECUPERAR-ADMIN).
+const SCRYPT_SIMULTANEOS = 4;
+// Fila de espera limitada: lotada, o login é recusado na hora (503) em vez de esperar sem fim.
+const SCRYPT_FILA_MAX = 64;
+let scryptAtivos = 0;
+const scryptFila = [];
+function scryptAsync(password, salt) {
+  return new Promise((resolve, reject) => {
+    const rodar = () => {
+      scryptAtivos++;
+      crypto.scrypt(password, salt, 64, (err, buf) => {
+        scryptAtivos--;
+        const proximo = scryptFila.shift();
+        if (proximo) proximo();
+        err ? reject(err) : resolve(buf);
+      });
+    };
+    if (scryptAtivos < SCRYPT_SIMULTANEOS) return rodar();
+    if (scryptFila.length >= SCRYPT_FILA_MAX) return reject(Object.assign(new Error('Fila de verificação de senha cheia.'), { status: 503, code: 'fila_scrypt' }));
+    scryptFila.push(rodar);
+  });
+}
+// Usuário inexistente é conferido contra este hash aleatório: o tempo de resposta não revela quem existe.
+const HASH_FICTICIO = Object.freeze({ salt: crypto.randomBytes(16).toString('hex'), hash: crypto.randomBytes(64).toString('hex') });
+async function verifyPasswordAsync(password, user) {
+  const salvo = Buffer.from(String(user?.hash || ''), 'hex');
+  const computed = await scryptAsync(String(password), Buffer.from(String(user?.salt || ''), 'hex'));
+  return salvo.length === computed.length && crypto.timingSafeEqual(computed, salvo);
+}
 function passwordValid(password) { return typeof password === 'string' && password.length >= 12 && password.length <= 128; }
 function generatePassword() { return crypto.randomBytes(18).toString('base64url') + 'aA1!'; }
 // ATENDE_MFA_ADMIN=1 (produção): administrador só usa o painel depois de ativar a verificação em duas etapas.
@@ -88,32 +118,57 @@ async function session(req) {
   if (now - s.seen > 60_000) await dados().sessoes.tocar(key, now);
   return { user, csrf:s.csrf };
 }
-function failureKey(username) { return String(username || '').toLowerCase(); }
-function locked(username) {
-  const key = failureKey(username), v = failures.get(key);
+// Bloqueio por usuário + IP: 5 erros do mesmo IP travam só esse IP por 15 min. Assim ninguém
+// de fora trava o login do dono, que entra normalmente de outro IP. Contra ataque espalhado por
+// muitos IPs, o total de erros do usuário gera um atraso progressivo (nunca um bloqueio total).
+// Tudo fica só na memória; o IP nunca vai para o disco nem para a lista do painel.
+const LIMITE_POR_IP = 5, JANELA_BLOQUEIO = 15 * 60_000, ATRASO_A_PARTIR = 10, ATRASO_MAX = 4000;
+const errosDoUsuario = new Map();
+function failureKey(username, ip) { return String(username || '').toLowerCase() + '\n' + String(ip || ''); }
+function userOf(key) { return key.split('\n')[0]; }
+function limpar(tabela) { if (tabela.size > 1000) for (const [k,v] of tabela) if (Date.now()>v.until) tabela.delete(k); }
+function contar(tabela, key) {
+  const now = Date.now(), old = tabela.get(key);
+  tabela.set(key, !old || now > old.until ? { count:1, until:now+JANELA_BLOQUEIO } : { ...old, count:old.count+1 });
+  limpar(tabela);
+}
+function locked(username, ip) {
+  const key = failureKey(username, ip), v = failures.get(key);
   if (!v) return false;
   if (Date.now() > v.until) { failures.delete(key); return false; }
-  return v.count >= 5;
+  return v.count >= LIMITE_POR_IP;
 }
-function fail(username) {
-  const key = failureKey(username), now = Date.now();
-  const old = failures.get(key);
-  const value = !old || now > old.until ? { count:1, until:now+15*60_000 } : { ...old, count:old.count+1 };
-  failures.set(key, value);
-  if (failures.size > 1000) for (const [k,v] of failures) if (Date.now()>v.until) failures.delete(k);
+function fail(username, ip) { contar(failures, failureKey(username, ip)); contar(errosDoUsuario, String(username || '').toLowerCase()); }
+// Atraso (ms) antes de responder: 0 até 9 erros do usuário em 15 min; depois 500, 1000, 2000, 4000 (máximo).
+function loginDelay(username) {
+  const key = String(username || '').toLowerCase(), v = errosDoUsuario.get(key);
+  if (!v) return 0;
+  if (Date.now() > v.until) { errosDoUsuario.delete(key); return 0; }
+  return v.count < ATRASO_A_PARTIR ? 0 : Math.min(ATRASO_MAX, 500 * 2 ** (v.count - ATRASO_A_PARTIR));
 }
-function forget(username) { failures.delete(failureKey(username)); }
+// Acerto: limpa só o IP de quem acertou. Os bloqueios de outros IPs (o atacante) continuam.
+function forget(username, ip) { failures.delete(failureKey(username, ip)); }
 // Apenas o administrador pode consultar/desbloquear pelo servidor; never export passwords or tokens.
+// Visão por conta (soma dos IPs bloqueados), sem expor IP.
 function lockInfo(username) {
-  const key=failureKey(username), entry=failures.get(key);
-  if (!entry) return null;
-  if (Date.now()>=entry.until) { failures.delete(key);return null; }
-  return entry.count>=5 ? {username:key,attempts:entry.count,until:new Date(entry.until).toISOString()} : null;
+  const user = String(username || '').toLowerCase(), now = Date.now();
+  let attempts = 0, until = 0;
+  for (const [key, entry] of failures) {
+    if (userOf(key) !== user) continue;
+    if (now >= entry.until) { failures.delete(key); continue; }
+    if (entry.count >= LIMITE_POR_IP) { attempts += entry.count; until = Math.max(until, entry.until); }
+  }
+  return until ? {username:user,attempts,until:new Date(until).toISOString()} : null;
 }
 function blockedAccounts() {
   const result=[];
-  for (const key of failures.keys()) { const info=lockInfo(key);if(info)result.push(info); }
+  for (const user of new Set([...failures.keys()].map(userOf))) { const info=lockInfo(user);if(info)result.push(info); }
   return result.sort((a,b)=>a.until.localeCompare(b.until));
 }
-function unblock(username) { const existed=Boolean(lockInfo(username));forget(username);return existed; }
-module.exports = { MFA_ADMIN, mfaRequired, newMfaSecret, verifyTotp, totp, otpauthUrl, hashPassword, verifyPassword, passwordValid, generatePassword, safeUser, newSession, clearSession, revokeUser, session, locked, fail, forget, lockInfo, blockedAccounts, unblock, ROLES, USERFILE };
+function unblock(username) {
+  const user = String(username || '').toLowerCase(), existed = Boolean(lockInfo(user));
+  for (const key of [...failures.keys()]) if (userOf(key) === user) failures.delete(key);
+  errosDoUsuario.delete(user);
+  return existed;
+}
+module.exports = { MFA_ADMIN, mfaRequired, newMfaSecret, verifyTotp, totp, otpauthUrl, hashPassword, verifyPassword, verifyPasswordAsync, HASH_FICTICIO, passwordValid, generatePassword, safeUser, newSession, clearSession, revokeUser, session, locked, fail, loginDelay, forget, lockInfo, blockedAccounts, unblock, ROLES, USERFILE };

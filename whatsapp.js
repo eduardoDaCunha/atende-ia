@@ -116,20 +116,46 @@ function createSecurityAlerts(config, {env=process.env, send=graphSendPayload, n
   }
   return {record,flush,enabled:true};
 }
-async function defaultAnswer(text, history, cfg) {
+// dadosEmpresa: "Dados da empresa" do WHATSAPP_EMPRESA_ID (o server.js lê só dessa empresa), ou null.
+async function defaultAnswer(text, history, cfg, dadosEmpresa=null) {
   const c = company(cfg);
-  if (!AI_ENABLED) return demoAnswer(text, c);
-  try { return await aiAnswer(text, history, c, 'whatsapp'); }
+  if (!AI_ENABLED) return demoAnswer(text, c, dadosEmpresa);
+  try { return await aiAnswer(text, history, c, 'whatsapp', dadosEmpresa); }
   catch (err) {
     // Teto diário da IA: segue atendendo com as respostas prontas da empresa.
-    if (err.code === 'limite_ia') return demoAnswer(text, c);
+    if (err.code === 'limite_ia') return demoAnswer(text, c, dadosEmpresa);
     return 'Desculpe, não consegui responder agora. Pode tentar de novo em instantes?';
   }
 }
 // Sem servidor (testes do módulo): nada é guardado e o robô sempre responde.
 const semRegistro = { entrada: async () => ({modo:'robo'}), saida: async () => {} };
 
-function createWebhook(config, { send=(to,text)=>graphSend(config,to,text), answer=defaultAnswer, conversas=semRegistro, log=console } = {}) {
+// Limite por IP do webhook só para o que vem SEM assinatura válida (GET de verificação, POST sem
+// X-Hub-Signature-256 ou com assinatura errada): lixo enviado pelo túnel não barra os eventos da Meta.
+// O que vem assinado fica limitado pelo teto de tamanho, pelas conexões e pelos tempos limite.
+const LIMITE_IP_MINUTO = 300;
+const LIMITE_IP_CHAVES = 1024;
+// ipDe(req): o server.js passa o visitante() dele (proxy confiável e IPv6 agrupado por /64).
+function createWebhook(config, { send=(to,text)=>graphSend(config,to,text), answer=defaultAnswer, conversas=semRegistro, log=console, ipDe=req=>req.socket.remoteAddress||'unknown' } = {}) {
+  const porIp = new Map();     // ip -> {expires, count}; cheia, descarta primeiro as não bloqueadas
+  function ipBloqueado(ip) {
+    const entry = porIp.get(ip);
+    return !!entry && Date.now() < entry.expires && entry.count > LIMITE_IP_MINUTO;
+  }
+  function ipDentroDoLimite(ip) {
+    const now = Date.now();
+    let entry = porIp.get(ip);
+    if (entry && now >= entry.expires) { porIp.delete(ip); entry = null; }
+    if (!entry && porIp.size >= LIMITE_IP_CHAVES) {
+      for (const [k,v] of porIp) if (now >= v.expires) porIp.delete(k);
+      let sobra = porIp.size - LIMITE_IP_CHAVES + Math.ceil(LIMITE_IP_CHAVES/10);
+      if (porIp.size >= LIMITE_IP_CHAVES) for (const [k,v] of porIp) { if (sobra <= 0) break; if (v.count <= LIMITE_IP_MINUTO) { porIp.delete(k); sobra--; } }
+      if (porIp.size >= LIMITE_IP_CHAVES) for (const k of porIp.keys()) { if (sobra-- <= 0) break; porIp.delete(k); }
+    }
+    const value = entry ? {expires:entry.expires, count:Math.min(entry.count+1, LIMITE_IP_MINUTO+1)} : {expires:now+60_000, count:1};
+    porIp.set(ip, value);
+    return value.count <= LIMITE_IP_MINUTO;
+  }
   const seen = new Map();      // id da mensagem -> horário (a Meta pode reenviar o mesmo evento)
   const histories = new Map(); // número -> {at, items}
   const rate = new Map();      // número -> {at, count}
@@ -208,6 +234,12 @@ function createWebhook(config, { send=(to,text)=>graphSend(config,to,text), answ
     let url;
     try { url = new URL(req.url, 'http://localhost'); } catch { return respond(res, 400); }
     if (url.pathname !== ROUTE) return respond(res, 404, 'Não encontrado.');
+    const ip = ipDe(req);
+    const excesso = () => { res.setHeader('Retry-After', '60'); res.setHeader('Connection', 'close'); return respond(res, 429, 'Muitas solicitações.'); };
+    // GET e outros métodos não têm assinatura: contam no limite por IP.
+    if (req.method !== 'POST' && !ipDentroDoLimite(ip)) return excesso();
+    // POST sem assinatura de um IP já barrado: recusa sem ler o corpo.
+    if (req.method === 'POST' && !req.headers['x-hub-signature-256'] && ipBloqueado(ip)) return excesso();
     if (req.method === 'GET') {
       // Verificação do webhook pela Meta: devolve o desafio só com o token correto.
       const ok = url.searchParams.get('hub.mode') === 'subscribe' && sameSecret(url.searchParams.get('hub.verify_token') || '', config.verifyToken);
@@ -215,18 +247,29 @@ function createWebhook(config, { send=(to,text)=>graphSend(config,to,text), answ
       return ok && /^[A-Za-z0-9_-]{1,200}$/.test(challenge) ? respond(res, 200, challenge) : respond(res, 403, 'Token inválido.');
     }
     if (req.method !== 'POST') return respond(res, 405);
+    // Tamanho declarado acima do limite: recusa sem ler o corpo.
+    if (Number(req.headers['content-length']) > MAX_BODY) { res.setHeader('Connection', 'close'); return respond(res, 413); }
     const chunks = []; let size = 0;
     try {
       for await (const part of req) { size += part.length; if (size > MAX_BODY) return respond(res, 413); chunks.push(part); }
     } catch { return respond(res, 400); }
     const raw = Buffer.concat(chunks);
-    if (!validSignature(raw, req.headers['x-hub-signature-256'], config.appSecret)) return respond(res, 401, 'Assinatura inválida.');
+    // HMAC barato: só o que falha aqui conta no limite por IP.
+    if (!validSignature(raw, req.headers['x-hub-signature-256'], config.appSecret)) return ipDentroDoLimite(ip) ? respond(res, 401, 'Assinatura inválida.') : excesso();
     let payload;
     try { payload = JSON.parse(raw.toString('utf8')); } catch { return respond(res, 400); }
     // A Meta espera 200 rápido; a resposta ao cliente segue em segundo plano.
     respond(res, 200, 'OK');
     processPayload(payload);
   });
+  // Mesmo padrão do server.js: limita conexões lentas, cabeçalhos e reutilização de conexões.
+  server.headersTimeout = 10_000;
+  server.requestTimeout = 15_000;
+  server.keepAliveTimeout = 5_000;
+  server.maxRequestsPerSocket = 100;
+  server.maxHeadersCount = 64;
+  server.maxConnections = 128;
+  server.setTimeout(30_000, socket => socket.destroy());
   server.idle = async () => { while (pending.size) await Promise.all([...pending]); };
   return server;
 }

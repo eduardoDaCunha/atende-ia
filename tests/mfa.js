@@ -11,7 +11,7 @@ const wait = ms => new Promise(r => setTimeout(r, ms));
 
 async function tetoDaIA() {
   // Módulo isolado, com fetch falso: nenhuma chamada real ao Gemini.
-  process.env.GEMINI_API_KEY = 'chave-ficticia'; process.env.ATENDE_IA_LIMITE_DIA = '3'; process.env.ATENDE_IA_LIMITE_SITE_DIA = '2';
+  process.env.GEMINI_API_KEY = 'chave-ficticia'; process.env.ATENDE_IA_LIMITE_DIA = '4'; process.env.ATENDE_IA_LIMITE_SITE_DIA = '2'; process.env.ATENDE_IA_LIMITE_DEMO_DIA = '1';
   delete require.cache[require.resolve(path.join(root, 'resposta.js'))];
   const r = require(path.join(root, 'resposta.js'));
   let chamadas = 0;
@@ -19,13 +19,16 @@ async function tetoDaIA() {
   global.fetch = async () => { chamadas++; return { ok: true, json: async () => ({ candidates: [{ content: { parts: [{ text: 'resposta da IA' }] } }] }) }; };
   try {
     const c = { name: 'Empresa Fictícia', services: ['x'], serviceArea: '', policy: '', contact: '' };
+    // Demonstração tem teto próprio e não gasta o teto do site.
+    await r.aiAnswer('oi', [], null, 'demo');
+    await assert.rejects(r.aiAnswer('oi', [], null, 'demo'), e => e.code === 'limite_ia', 'Demonstração para no teto próprio');
     assert.equal(await r.aiAnswer('oi', [], c, 'site'), 'resposta da IA');
-    await r.aiAnswer('oi', [], c, 'site');
+    assert.equal(await r.aiAnswer('oi', [], c, 'site'), 'resposta da IA', 'Site não perde o que a demonstração gastou');
     await assert.rejects(r.aiAnswer('oi', [], c, 'site'), e => e.code === 'limite_ia', 'Site para no teto próprio');
     await r.aiAnswer('oi', [], c, 'whatsapp');
     await assert.rejects(r.aiAnswer('oi', [], c, 'whatsapp'), e => e.code === 'limite_ia', 'Teto geral vale para o WhatsApp');
-    assert.equal(chamadas, 3, 'Acima do teto, o Gemini não é chamado');
-    assert.deepEqual([r.usoDaIA().total, r.usoDaIA().site], [3, 2]);
+    assert.equal(chamadas, 4, 'Acima do teto, o Gemini não é chamado');
+    assert.deepEqual([r.usoDaIA().total, r.usoDaIA().site, r.usoDaIA().demo], [4, 2, 1]);
   } finally { global.fetch = original; }
 }
 

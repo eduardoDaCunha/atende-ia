@@ -14,8 +14,8 @@
   <link rel="icon" type="image/webp" sizes="128x128" href="/favicon.webp">
   <link rel="preload" href="/geist.woff2?v=1" as="font" type="font/woff2" crossorigin>
   <title>Atende.IA | Automação com IA e sistemas para empresas</title>
-  <link rel="stylesheet" href="/style.css?v=063"><script src="/tema.js?v=1"></script><link rel="stylesheet" href="/tema.css?v=1">
-  <script src="/app.js?v=060" defer></script>
+  <link rel="stylesheet" href="/style.css?v=065"><script src="/tema.js?v=1"></script><link rel="stylesheet" href="/tema.css?v=1">
+  <script src="/app.js?v=061" defer></script>
 </head>
 <body>
   <a class="skip-link" href="#conteudo">Ir para o conteúdo</a>
@@ -28,6 +28,7 @@
         <a href="#produto">Produto</a>
         <a href="#servicos">Serviços</a>
         <a href="#como-funciona">Como funciona</a>
+        <a href="#experimente">Experimente</a>
         <a href="#faq">Dúvidas</a>
       </nav>
       <a class="btn btn-primary btn-small" href="#agente">Falar com o agente</a>
@@ -52,7 +53,7 @@
               <strong>Agente Atende.IA</strong>
               <span class="note">Tire suas dúvidas sobre automação e sistemas</span>
             </div>
-            <button class="icon-btn" id="restart" type="button">Reiniciar</button>
+            <button class="icon-btn" id="restart" data-restart type="button">Reiniciar</button>
           </div>
           <div id="chat" class="chat-history" role="log" aria-live="polite" aria-relevant="additions text" aria-label="Mensagens da conversa" tabindex="0"></div>
           <div class="quick-actions" aria-label="Sugestões de perguntas">
@@ -220,6 +221,44 @@
       </div>
     </section>
 
+    <section aria-labelledby="demo-title">
+      <div class="shell section split" id="experimente">
+        <div class="col-5">
+          <h2 id="demo-title">Experimente agora.</h2>
+          <p class="lede">Veja na prática como o agente atende os seus clientes. Faça uma pergunta como se fosse um cliente e veja a resposta construída só com os dados cadastrados, sem inventar preço nem agenda.</p>
+          <p class="note">Esta é uma demonstração com dados fictícios. Nenhum pedido é registrado. Não digite dados pessoais.</p>
+        </div>
+        <div class="col-7">
+          <section class="chat-card" id="experimente-chat" aria-label="Demonstração do agente com dados fictícios">
+            <div class="chat-head">
+              <div>
+                <strong>Clínica Exemplo</strong>
+                <span class="note">Clínica de exemplo, só para demonstração</span>
+              </div>
+              <button class="icon-btn" data-restart type="button">Reiniciar</button>
+            </div>
+            <div class="chat-history" role="log" aria-live="polite" aria-relevant="additions text" aria-label="Mensagens da demonstração" tabindex="0"></div>
+            <div class="quick-actions" aria-label="Sugestões de perguntas para a clínica">
+              <button class="icon-btn" type="button" data-msg="Qual é o horário de atendimento?">Horário</button>
+              <button class="icon-btn" type="button" data-msg="Quais serviços vocês têm?">Serviços</button>
+              <button class="icon-btn" type="button" data-msg="Quero marcar uma consulta.">Marcar consulta</button>
+              <button class="icon-btn" type="button" data-msg="Quanto custa a consulta?">Quanto custa?</button>
+            </div>
+            <form class="chat-input">
+              <label for="demo-message" class="sr-only">Sua mensagem para a clínica de exemplo</label>
+              <input id="demo-message" maxlength="1000" autocomplete="off" placeholder="Pergunte algo à clínica" required>
+              <button class="btn btn-primary" type="submit">Enviar</button>
+            </form>
+          </section>
+          <aside class="cta-calculadora" aria-labelledby="calculadora-title">
+            <h3 id="calculadora-title">Quanto o atendimento lento custa para a sua empresa?</h3>
+            <p class="note">Informe seus números e veja, em um minuto, quanto você deixa de ganhar por mês com mensagens sem resposta.</p>
+            <a class="btn btn-secondary" href="/calculadora">Abrir a calculadora</a>
+          </aside>
+        </div>
+      </div>
+    </section>
+
     <section class="band" aria-labelledby="business-title">
       <div class="shell section split" id="para-empresas">
         <div class="col-5">
@@ -282,6 +321,7 @@
           <li><a href="#agente">Agente</a></li>
           <li><a href="#produto">Produto</a></li>
           <li><a href="#servicos">Serviços</a></li>
+          <li><a href="#experimente">Experimente</a></li>
         </ul>
       </nav>
       <nav class="foot-col" aria-labelledby="foot-docs">
@@ -307,6 +347,7 @@
       <label>Seu nome<input name="name" autocomplete="name" required minlength="2" maxlength="90"></label>
       <label>E-mail ou telefone<input name="contact" required minlength="5" maxlength="120"></label>
       <label>O que deseja automatizar?<textarea name="need" required minlength="3" maxlength="250" rows="3" placeholder="Ex.: dúvidas sobre produtos e pedidos de orçamento"></textarea></label>
+      <div class="campo-isca" aria-hidden="true"><label>Site da empresa<input name="site" tabindex="-1" autocomplete="off"></label></div>
       <label class="consent"><input type="checkbox" name="consent" required><span>Autorizo o armazenamento destes dados para a análise do meu pedido. <a href="/privacidade" target="_blank" rel="noopener noreferrer">Política de privacidade</a> e <a href="/termos" target="_blank" rel="noopener noreferrer">Termos</a>.</span></label>
       <p class="form-feedback" id="commercial-feedback" role="status"></p>
       <button class="btn btn-primary" type="submit">Enviar pedido</button>

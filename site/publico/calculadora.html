@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#0a0a0b">
+  <meta name="color-scheme" content="dark light">
+  <meta name="description" content="Calcule quanto sua empresa pode estar perdendo com contatos sem resposta, usando apenas os seus próprios números.">
+  <link rel="icon" href="/favicon.webp" type="image/webp" sizes="128x128">
+  <link rel="preload" href="/geist.woff2?v=1" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="/style.css?v=063"><script src="/tema.js?v=1"></script><link rel="stylesheet" href="/tema.css?v=1">
+  <link rel="stylesheet" href="/calculadora.css?v=1">
+  <script src="/calculadora.js?v=1" defer></script>
+  <title>Calculadora de perda de vendas | Atende.IA</title>
+</head>
+<body>
+  <a class="skip-link" href="#conteudo">Ir para o conteúdo</a>
+  <header class="topbar">
+    <div class="shell topbar-inner">
+      <a class="brand" href="/" aria-label="Atende.IA, página inicial"><img src="/favicon.webp" width="26" height="26" alt=""><span>Atende.IA</span></a>
+      <a class="btn btn-secondary btn-small" href="/">Voltar ao site</a>
+    </div>
+  </header>
+
+  <main id="conteudo">
+    <div class="shell legal-head">
+      <h1>Quanto os contatos sem resposta custam?</h1>
+      <p class="lede">Digite os números da sua empresa e veja uma estimativa. O cálculo é feito só no seu navegador: nada do que você digita é enviado ou guardado.</p>
+    </div>
+    <div class="rule">
+      <div class="shell calc-layout split">
+        <form id="calc-form" class="calc-form col-7" autocomplete="off" novalidate>
+          <h2 class="calc-titulo">Seus números</h2>
+          <noscript><p class="calc-aviso">Esta calculadora precisa de JavaScript ativado no navegador.</p></noscript>
+
+          <div class="calc-campo">
+            <label for="contatos">Contatos recebidos por mês</label>
+            <p class="note" id="contatos-ajuda">Mensagens, ligações e pedidos de orçamento, somando todos os canais.</p>
+            <input id="contatos" name="contatos" inputmode="numeric" maxlength="15" aria-describedby="contatos-ajuda contatos-erro">
+            <p class="calc-erro" id="contatos-erro" hidden></p>
+          </div>
+
+          <div class="calc-campo">
+            <label for="semResposta">Contatos sem resposta ou respondidos tarde demais (%)</label>
+            <p class="note" id="semResposta-ajuda">De cada 100 contatos, quantos ficam sem retorno ou recebem resposta quando já não adianta.</p>
+            <input id="semResposta" name="semResposta" inputmode="decimal" maxlength="15" aria-describedby="semResposta-ajuda semResposta-erro">
+            <p class="calc-erro" id="semResposta-erro" hidden></p>
+          </div>
+
+          <div class="calc-campo">
+            <label for="conversao">Contatos respondidos que viram venda (%)</label>
+            <p class="note" id="conversao-ajuda">De cada 100 contatos que recebem resposta a tempo, quantos compram.</p>
+            <input id="conversao" name="conversao" inputmode="decimal" maxlength="15" aria-describedby="conversao-ajuda conversao-erro">
+            <p class="calc-erro" id="conversao-erro" hidden></p>
+          </div>
+
+          <div class="calc-campo">
+            <label for="valorVenda">Valor médio de uma venda (R$)</label>
+            <p class="note" id="valorVenda-ajuda">Quanto a empresa recebe, em média, em cada venda.</p>
+            <input id="valorVenda" name="valorVenda" inputmode="decimal" maxlength="20" aria-describedby="valorVenda-ajuda valorVenda-erro">
+            <p class="calc-erro" id="valorVenda-erro" hidden></p>
+          </div>
+
+          <div><button class="btn btn-secondary btn-small" type="reset">Limpar</button></div>
+        </form>
+
+        <section class="calc-resultado col-5 sticky" aria-labelledby="calc-resultado-titulo">
+          <h2 class="calc-titulo" id="calc-resultado-titulo">Estimativa</h2>
+          <dl class="calc-linhas">
+            <div><dt>Contatos perdidos por mês</dt><dd id="r-contatos">—</dd></div>
+            <div><dt>Vendas perdidas por mês</dt><dd id="r-vendas">—</dd></div>
+            <div><dt>Perda por mês</dt><dd id="r-mes">—</dd></div>
+            <div class="calc-destaque"><dt>Perda por ano</dt><dd id="r-ano">—</dd></div>
+          </dl>
+          <p class="note" id="calc-situacao">Preencha os quatro campos para ver a estimativa.</p>
+          <p class="sr-only" id="calc-anuncio" aria-live="polite"></p>
+          <p class="note calc-premissa">Esta é uma estimativa feita só com os números que você digitou, não uma promessa de resultado. Ela parte da premissa de que os contatos perdidos comprariam na mesma proporção dos contatos respondidos.</p>
+          <a class="btn btn-primary calc-acao" href="/#agente">Falar com o agente</a>
+        </section>
+      </div>
+    </div>
+  </main>
+
+  <footer class="foot">
+    <div class="shell foot-inner note">
+      <div class="foot-about"><p>Atende.IA. Versão 0.3.8.3</p></div>
+      <nav class="foot-col" aria-labelledby="foot-docs">
+        <h2 id="foot-docs">Navegação</h2>
+        <ul>
+          <li><a href="/">Página inicial</a></li>
+          <li><a href="/privacidade">Política de privacidade</a></li>
+          <li><a href="/termos">Termos e condições</a></li>
+        </ul>
+      </nav>
+    </div>
+  </footer>
+</body>
+</html>

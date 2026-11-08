@@ -14,6 +14,7 @@ const ARQ = {
   usuarios: 'usuarios.json', empresas: 'empresas.json', solicitacoes: 'solicitacoes.json',
   conversas: 'conversas-whatsapp.json', auditoria: 'auditoria.json', tentativas: 'tentativas-login.json',
   orcamento: 'leads-demonstracao.json', comercial: 'interesses-comerciais-teste.json', configuracoes: 'configuracoes-agente.json',
+  dadosEmpresa: 'dados-empresa.json',
 };
 const MAX_AUDITORIA = 1500, MAX_TENTATIVAS = 700, MAX_MENSAGENS_WPP = 300, MAX_CONVERSAS = 2000;
 const agora = () => new Date().toISOString();
@@ -145,6 +146,20 @@ function criar() {
         const alvo = path.join(DATA, 'empresa.json'), temp = alvo + '.tmp';
         await fs.writeFile(temp, JSON.stringify(cfg, null, 2), { mode: 0o600 });
         await fs.rename(temp, alvo);
+      },
+    },
+
+    dadosEmpresa: {
+      /** Horário, endereço, serviços e perguntas da empresa. Fora do escopo ou sem cadastro: null. */
+      async obter(escopo, empresaId) {
+        if (!daEmpresa(escopo, { companyId: empresaId })) return null;
+        return (await read(ARQ.dadosEmpresa, {}))[empresaId] || null;
+      },
+      async salvar(escopo, empresaId, d) {
+        if (!daEmpresa(escopo, { companyId: empresaId })) throw Object.assign(new Error('Empresa fora do seu acesso.'), { status: 403 });
+        const item = { horario: d.horario, endereco: d.endereco, servicos: d.servicos, perguntas: d.perguntas, atualizadaEm: agora() };
+        await update(ARQ.dadosEmpresa, mapa => { mapa[empresaId] = item; }, {});
+        return item;
       },
     },
 

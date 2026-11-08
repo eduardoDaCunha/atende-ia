@@ -36,6 +36,9 @@ const { Client } = require(path.join(root, 'node_modules', 'pg'));
       status: 'novo', priority: 'normal', assignedTo: null, createdAt: agora, updatedAt: agora, messages: [{ id: crypto.randomUUID(), author: dono_.name, role: 'cliente', content: 'Olá', internal: false, createdAt: agora }] });
     const sA = sol(A, clienteA), sB = sol(B, clienteB);
     await D.solicitacoes.criar(sA); await D.solicitacoes.criar(sB);
+    const dadosDe = horario => ({ horario, endereco: 'Rua Fictícia', servicos: [{ nome: 'Serviço', preco: 'R$ 10' }], perguntas: [{ pergunta: 'Pergunta?', resposta: 'Resposta.' }] });
+    await D.dadosEmpresa.salvar({ perfil: 'atendimento', empresaId: A }, A, dadosDe('Horário A'));
+    await D.dadosEmpresa.salvar(null, B, dadosDe('Horário B'));
 
     // 1. RLS: consultas SEM filtro de empresa, direto no banco, com o contexto da empresa A.
     const app = new Client({ connectionString: urlApp.toString() }); await app.connect();
@@ -46,14 +49,27 @@ const { Client } = require(path.join(root, 'node_modules', 'pg'));
     await assert.rejects(app.query(`INSERT INTO solicitacoes (id, empresa_id, cliente_id, nome_cliente, assunto, descricao) VALUES ($1,$2,$3,'x','Assunto x','Descrição x longa')`,
       [crypto.randomUUID(), B, clienteB.id]), /row-level security/, 'A não grava na B');
     await app.query('ROLLBACK');
+    await app.query('BEGIN'); await app.query("SELECT set_config('app.empresa_id', $1, true)", [A]);
+    assert.deepEqual((await app.query('SELECT horario FROM dados_empresa')).rows, [{ horario: 'Horário A' }], 'Dados da empresa: A só vê os próprios');
+    assert.equal((await app.query("UPDATE dados_empresa SET horario = 'invadido' WHERE empresa_id = $1", [B])).rowCount, 0, 'Dados da empresa: A não altera a B');
+    await app.query('ROLLBACK');
+    await app.query('BEGIN'); await app.query("SELECT set_config('app.empresa_id', $1, true)", [A]);
+    const empresaC = crypto.randomUUID();
+    await assert.rejects(app.query('INSERT INTO dados_empresa (empresa_id) VALUES ($1)', [empresaC]), /row-level security/, 'Dados da empresa: A não grava em outra empresa');
+    await app.query('ROLLBACK');
+    await assert.rejects(app.query('DELETE FROM dados_empresa'), /permission denied/, 'Dados da empresa: a aplicação não apaga');
     await app.query('BEGIN');
     assert.equal((await app.query('SELECT count(*)::int AS n FROM solicitacoes')).rows[0].n, 0, 'Sem contexto nenhum, nada aparece');
+    assert.equal((await app.query('SELECT count(*)::int AS n FROM dados_empresa')).rows[0].n, 0, 'Dados da empresa: sem contexto, nada aparece');
     await app.query('ROLLBACK');
     await assert.rejects(app.query('DELETE FROM auditoria'), /permission denied/, 'A aplicação não apaga a auditoria');
     await app.end();
     // Pela camada de dados, com escopo da empresa A:
     assert.equal(await D.solicitacoes.obter({ perfil: 'atendimento', empresaId: A }, sB.id), null, 'Camada de dados: A não lê a B');
     assert.equal((await D.solicitacoes.listar({ perfil: 'atendimento', empresaId: A })).length, 1);
+    assert.equal(await D.dadosEmpresa.obter({ perfil: 'atendimento', empresaId: A }, B), null, 'Camada de dados: A não lê os dados da B');
+    assert.equal((await D.dadosEmpresa.obter({ perfil: 'atendimento', empresaId: A }, A)).servicos[0].nome, 'Serviço', 'Lista volta como objeto, não como texto');
+    await assert.rejects(D.dadosEmpresa.salvar({ perfil: 'atendimento', empresaId: A }, B, dadosDe('invadido')), /fora do seu acesso/, 'Camada de dados: A não grava na B');
 
     // 2 e 3. Sessão e reenvio da Meta sobrevivem ao reinício.
     await D.sessoes.criar('a'.repeat(64), { id: clienteA.id, csrf: 'c'.repeat(32), created: Date.now(), seen: Date.now() });

@@ -4,7 +4,7 @@
 #   TESTE_PG_DONO=postgres://dono:senha@127.0.0.1:5432/postgres TESTE_PG_APP_SENHA=... bash rodar-testes.sh --postgres
 #                                    -> as mesmas suítes com o servidor no PostgreSQL (um banco por teste)
 cd "$(dirname "$0")"
-suites="smoke tailscale dados-permanentes atualizacoes-seguras whatsapp whatsapp-painel cidades agente-site diagnostico ferramentas mcp negocio protecao-requisicoes alertas-seguranca config-empresa proxy-confiavel mfa postgres"
+suites="smoke tailscale dados-permanentes atualizacoes-seguras whatsapp whatsapp-painel cidades agente-site diagnostico ferramentas mcp negocio protecao-requisicoes alertas-seguranca config-empresa proxy-confiavel mfa calculadora dados-empresa dados-empresa-ia chat-demo login-tempo limites whatsapp-limites bloqueio-login contatos-protecao postgres"
 if [ "$1" = "--postgres" ]; then
   [ -n "$TESTE_PG_DONO" ] && [ -n "$TESTE_PG_APP_SENHA" ] || { echo "Defina TESTE_PG_DONO e TESTE_PG_APP_SENHA."; exit 2; }
   export NODE_OPTIONS="--import=file://$PWD/tests/preparar-pg.mjs"

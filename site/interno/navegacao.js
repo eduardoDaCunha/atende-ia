@@ -23,6 +23,7 @@
   };
   const SENHA = { id: 'senha', titulo: 'Alterar senha', texto: 'Trocar a senha da sua conta', icone: 'senha', clicar: '#change-password' };
   const SITE = { id: 'site', titulo: 'Ver o site', texto: 'Abrir a página pública', icone: 'site', link: '/' };
+  const DADOS_EMPRESA = { id: 'dados-empresa', titulo: 'Dados da empresa', texto: 'Horário, endereço, serviços, preços e perguntas', icone: 'empresas', mostrar: ['#dados-empresa-box'], abrir: () => window.atualizarEmpresasDosDados?.() };
 
   /* mostrar: o que aparece nessa tela. etapas: formulário em passo a passo. */
   const PAGINAS = {
@@ -35,6 +36,7 @@
       ] },
       { grupo: 'Gestão', itens: [
         { id: 'empresas', titulo: 'Empresas', texto: 'Planos, assinaturas e vencimentos', icone: 'empresas', mostrar: ['#companies-list', '#companies-feedback'] },
+        DADOS_EMPRESA,
         { id: 'usuarios', titulo: 'Usuários', texto: 'Perfis, bloqueios e senhas', icone: 'usuarios', mostrar: ['#users-list', '#users-list + p', '#generated-password', '#users-feedback'] },
         { id: 'agente', titulo: 'Agente', texto: 'Nome, serviços e regras de resposta', icone: 'agente', mostrar: ['#config-form'],
           etapas: { form: '#config-form', passos: [{ nome: 'Identidade', campos: ['companyId', 'name', 'assistantName', 'serviceArea'] }, { nome: 'Serviços e regras', campos: ['services', 'policy'] }, { nome: 'Mensagens', campos: ['contact', 'welcome'] }] } }
@@ -53,7 +55,8 @@
       { grupo: 'Atendimento', itens: [
         { id: 'fila', titulo: 'Fila', texto: 'Solicitações e respostas', icone: 'fila', contador: true, mostrar: ['#stats', 'main > .columns > .box:first-child > .row', '#staff-list', 'main > .columns > .box:nth-child(2)'] },
         { id: 'whatsapp', titulo: 'WhatsApp', texto: 'Conversas com robô e atendente', icone: 'conversa', whatsapp: true, mostrar: ['#wpp-box'] },
-        { id: 'pedidos-site', titulo: 'Pedidos do site', texto: 'Contatos recebidos pelo formulário', icone: 'pedidos', soAdmin: true, mostrar: ['#show-leads', '#leads'], abrir: () => { const lista = document.querySelector('#leads'); if (lista.classList.contains('hidden')) document.querySelector('#show-leads').click(); } }
+        { id: 'pedidos-site', titulo: 'Pedidos do site', texto: 'Contatos recebidos pelo formulário', icone: 'pedidos', soAdmin: true, mostrar: ['#show-leads', '#leads'], abrir: () => { const lista = document.querySelector('#leads'); if (lista.classList.contains('hidden')) document.querySelector('#show-leads').click(); } },
+        DADOS_EMPRESA
       ] },
       { grupo: 'Outras áreas', itens: [
         { id: 'administracao', titulo: 'Administração', texto: 'Empresas, usuários e sistema', icone: 'painel', link: '/admin', soAdmin: true },
@@ -246,6 +249,7 @@
   if (pagina === 'atendimento') {
     lerJson('/api/auth/me').then(dados => {
       if (dados?.user?.role !== 'admin') { esconderCartao('administracao'); esconderCartao('pedidos-site'); }
+      else esconderCartao('dados-empresa'); // o admin edita pela Administração, onde escolhe a empresa
     });
     lerJson('/api/staff/whatsapp').then(dados => { if (!dados?.enabled) esconderCartao('whatsapp'); });
     lerJson('/api/staff/stats').then(dados => {

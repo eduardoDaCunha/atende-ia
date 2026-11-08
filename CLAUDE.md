@@ -6,7 +6,7 @@ Atendimento com IA: site público (`site/publico`) e painel interno com perfis a
 - Iniciar: `INICIAR-ATENDE.bat` (ou `node server.js`). Porta 3011, só em `127.0.0.1`.
 - Primeiro admin: `CRIAR-ADMIN.bat`. Recuperar admin: `RECUPERAR-ADMIN.bat`. Importar dados antigos: `PREPARAR-DADOS.bat`.
 - WhatsApp: sobe junto com o `server.js` quando `WHATSAPP_*` está no `config-local.bat`, na porta 3012. Passo a passo em `WHATSAPP-TESTE.md`.
-- Testes: `bash rodar-testes.sh` (ou `RODAR-TESTES.bat`) roda tudo; `bash rodar-testes.sh --postgres` roda no banco. Suítes: `node tests/smoke.js`, `node tests/tailscale.js`, `node tests/dados-permanentes.js`, `node tests/atualizacoes-seguras.js`, `node tests/whatsapp.js`, `node tests/whatsapp-painel.js`, `node tests/cidades.js`, `node tests/agente-site.js`, `node tests/diagnostico.js`, `node tests/ferramentas.js`, `node tests/mcp.js`, `node tests/negocio.js`, `node tests/protecao-requisicoes.js`, `node tests/alertas-seguranca.js`. Rode todos depois de mudar `server.js`, `auth.js`, `store.js`, `resposta.js`, `whatsapp.js`, `conversas.js`, `diagnostico.js`, `sanitizar.js`, `ferramentas.js`, `catalogo.js`, `mcp.js` ou `negocio.js`. Testes que sobem o servidor copiam os arquivos listados em `tests/arquivos-servidor.js`: ao criar um módulo novo usado pelo `server.js`, inclua-o SÓ ali. Um `EBUSY` na limpeza da pasta temporária no Windows é conhecido e não indica falha; vale a linha `OK:`.
+- Testes: `bash rodar-testes.sh` (ou `RODAR-TESTES.bat`) roda tudo; `bash rodar-testes.sh --postgres` roda no banco. Suítes: `node tests/smoke.js`, `node tests/tailscale.js`, `node tests/dados-permanentes.js`, `node tests/atualizacoes-seguras.js`, `node tests/whatsapp.js`, `node tests/whatsapp-painel.js`, `node tests/cidades.js`, `node tests/agente-site.js`, `node tests/diagnostico.js`, `node tests/ferramentas.js`, `node tests/mcp.js`, `node tests/negocio.js`, `node tests/protecao-requisicoes.js`, `node tests/alertas-seguranca.js`, `node tests/dados-empresa.js`. Rode todos depois de mudar `server.js`, `auth.js`, `store.js`, `resposta.js`, `whatsapp.js`, `conversas.js`, `diagnostico.js`, `sanitizar.js`, `ferramentas.js`, `catalogo.js`, `mcp.js` ou `negocio.js`. Testes que sobem o servidor copiam os arquivos listados em `tests/arquivos-servidor.js`: ao criar um módulo novo usado pelo `server.js`, inclua-o SÓ ali. Um `EBUSY` na limpeza da pasta temporária no Windows é conhecido e não indica falha; vale a linha `OK:`.
 
 ## Estrutura
 - `server.js`: rotas HTTP e API. `auth.js`: hash de senha e sessões. `store.js`: leitura e gravação JSON com trava (usado só pelo motor JSON).
@@ -33,3 +33,6 @@ Atendimento com IA: site público (`site/publico`) e painel interno com perfis a
 - Monte DOM com `textContent`, nunca `innerHTML` com dados do usuário.
 - Antes de cada commit, confira `git status` e `git diff --cached`; não use `git add` em arquivos ignorados.
 - Ao mudar `painel.js` ou `painel.css`, atualize o `?v=` em todas as páginas de `site/interno`.
+
+## Equipe de agentes
+Regras e funcoes de cada agente: @EQUIPE-AGENTES.md

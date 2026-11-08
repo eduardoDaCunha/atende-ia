@@ -1,94 +1,97 @@
 'use strict';
-const WELCOME = 'Olá! Sou o agente virtual da Atende.IA. Pergunte como funciona, o que dá para automatizar ou se serve para a sua empresa. Se quiser, conte o seu ramo.';
-const chat = document.querySelector('#chat');
-const form = document.querySelector('#chat-form');
-const messageInput = document.querySelector('#message');
-const sendButton = document.querySelector('#send');
-let history = [];
-let busy = false;
-let requestId = 0;
-let activeController = null;
 
-/* Conversa */
-function bubble(text, who) {
-  const node = document.createElement('div');
-  node.className = `message ${who}`;
-  // Somente texto: não renderizar HTML recebido da IA ou do visitante.
-  node.textContent = text;
-  chat.append(node);
-  chat.scrollTop = chat.scrollHeight;
-  return node;
-}
-function loadingBubble() {
-  const node = bubble('', 'agent');
-  const dots = document.createElement('span');
-  dots.className = 'typing';
-  dots.setAttribute('aria-hidden', 'true');
-  for (let i = 0; i < 3; i++) dots.append(document.createElement('i'));
-  const label = document.createElement('span');
-  label.className = 'sr-only';
-  label.textContent = 'Preparando resposta';
-  node.append(dots, label);
-  return node;
-}
-function setBusy(value) {
-  busy = value;
-  sendButton.disabled = value;
-}
-function reset() {
-  requestId++;
-  activeController?.abort();
-  activeController = null;
-  setBusy(false);
-  history = [];
-  chat.replaceChildren();
-  bubble(WELCOME, 'agent');
-  messageInput.value = '';
-}
-async function ask(text, keepFocus = false) {
-  const message = text.trim();
-  if (!message || busy) return;
-  const myRequest = ++requestId;
-  setBusy(true);
-  bubble(message, 'visitor');
-  const loading = loadingBubble();
-  const controller = new AbortController();
-  activeController = controller;
-  try {
-    const response = await fetch('/api/chat', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message, history }),
-      signal: controller.signal
-    });
-    const result = await response.json();
-    if (!response.ok) throw new Error(result.error || 'Tente novamente em instantes.');
-    if (myRequest !== requestId) return;
-    loading.textContent = result.answer;
-    history.push({ role: 'user', text: message }, { role: 'assistant', text: result.answer });
-    history = history.slice(-8);
-  } catch (error) {
-    if (myRequest !== requestId) return;
-    loading.textContent = `Não consegui responder agora. ${error.message}`;
-  } finally {
-    if (myRequest === requestId) {
-      setBusy(false);
-      activeController = null;
-      if (keepFocus) messageInput.focus({ preventScroll: true });
-      chat.scrollTop = chat.scrollHeight;
+/* Conversa: cada chat da página tem o próprio histórico e o próprio endereço de resposta. */
+function connectChat({ card, welcome, endpoint }) {
+  const chat = card.querySelector('.chat-history');
+  const form = card.querySelector('.chat-input');
+  const messageInput = form.querySelector('input');
+  const sendButton = form.querySelector('[type="submit"]');
+  let history = [];
+  let busy = false;
+  let requestId = 0;
+  let activeController = null;
+
+  function bubble(text, who) {
+    const node = document.createElement('div');
+    node.className = `message ${who}`;
+    // Somente texto: não renderizar HTML recebido da IA ou do visitante.
+    node.textContent = text;
+    chat.append(node);
+    chat.scrollTop = chat.scrollHeight;
+    return node;
+  }
+  function loadingBubble() {
+    const node = bubble('', 'agent');
+    const dots = document.createElement('span');
+    dots.className = 'typing';
+    dots.setAttribute('aria-hidden', 'true');
+    for (let i = 0; i < 3; i++) dots.append(document.createElement('i'));
+    const label = document.createElement('span');
+    label.className = 'sr-only';
+    label.textContent = 'Preparando resposta';
+    node.append(dots, label);
+    return node;
+  }
+  function setBusy(value) {
+    busy = value;
+    sendButton.disabled = value;
+  }
+  function reset() {
+    requestId++;
+    activeController?.abort();
+    activeController = null;
+    setBusy(false);
+    history = [];
+    chat.replaceChildren();
+    bubble(welcome, 'agent');
+    messageInput.value = '';
+  }
+  async function ask(text, keepFocus = false) {
+    const message = text.trim();
+    if (!message || busy) return;
+    const myRequest = ++requestId;
+    setBusy(true);
+    bubble(message, 'visitor');
+    const loading = loadingBubble();
+    const controller = new AbortController();
+    activeController = controller;
+    try {
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message, history }),
+        signal: controller.signal
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || 'Tente novamente em instantes.');
+      if (myRequest !== requestId) return;
+      loading.textContent = result.answer;
+      history.push({ role: 'user', text: message }, { role: 'assistant', text: result.answer });
+      history = history.slice(-8);
+    } catch (error) {
+      if (myRequest !== requestId) return;
+      loading.textContent = `Não consegui responder agora. ${error.message}`;
+    } finally {
+      if (myRequest === requestId) {
+        setBusy(false);
+        activeController = null;
+        if (keepFocus) messageInput.focus({ preventScroll: true });
+        chat.scrollTop = chat.scrollHeight;
+      }
     }
   }
-}
 
-form.addEventListener('submit', event => {
-  event.preventDefault();
-  const message = messageInput.value;
-  if (!message.trim() || busy) return;
-  messageInput.value = '';
-  ask(message, true);
-});
-document.querySelectorAll('[data-msg]').forEach(button => button.addEventListener('click', () => ask(button.dataset.msg)));
-document.querySelector('#restart').addEventListener('click', reset);
+  form.addEventListener('submit', event => {
+    event.preventDefault();
+    const message = messageInput.value;
+    if (!message.trim() || busy) return;
+    messageInput.value = '';
+    ask(message, true);
+  });
+  card.querySelectorAll('[data-msg]').forEach(button => button.addEventListener('click', () => ask(button.dataset.msg)));
+  card.querySelector('[data-restart]').addEventListener('click', reset);
+  reset();
+}
 
 /* Contato com a equipe */
 function connectContact() {
@@ -152,4 +155,13 @@ fetch('/api/status')
     if (status?.version) document.querySelectorAll('[data-version]').forEach(node => { node.textContent = status.version; });
   })
   .catch(() => { /* A versão escrita na página continua valendo. */ });
-reset();
+connectChat({
+  card: document.querySelector('#agente'),
+  endpoint: '/api/chat',
+  welcome: 'Olá! Sou o agente virtual da Atende.IA. Pergunte como funciona, o que dá para automatizar ou se serve para a sua empresa. Se quiser, conte o seu ramo.'
+});
+connectChat({
+  card: document.querySelector('#experimente-chat'),
+  endpoint: '/api/chat-demo',
+  welcome: 'Olá! Sou o agente virtual da Clínica Exemplo, uma clínica de demonstração. Pergunte sobre horários, serviços, endereço ou como pedir uma consulta.'
+});

@@ -9,9 +9,10 @@ const fs = require('node:fs/promises');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const zlib = require('node:zlib');
+const net = require('node:net');
 const { read, update, ROOT, DATA, acquireServerLock } = require('./store');
 const auth = require('./auth');
-const { AI_ENABLED, MODEL, bad, str, company, normalize, siteAnswer, aiAnswer, usoDaIA } = require('./resposta');
+const { AI_ENABLED, MODEL, bad, str, company, normalize, siteAnswer, demonstracaoAnswer, aiAnswer, usoDaIA } = require('./resposta');
 const whatsapp = require('./whatsapp');
 const conversas = require('./conversas');
 // Camada de dados: JSON (local) ou PostgreSQL (produção), escolhida por ATENDE_BANCO.
@@ -40,8 +41,21 @@ const SITE_ORIGIN = (()=>{
   return u.origin;
 })();
 const rate = new Map();
+// Cotas globais em tabela própria: nunca são descartadas quando a tabela por IP enche.
+const rateGlobal = new Map();
+// Tamanho máximo da tabela por IP. Cheia, as chaves mais antigas saem para dar lugar a IPs novos.
+const LIMITE_CHAVES = Number(process.env.ATENDE_LIMITE_CHAVES || 4096);
+if (!Number.isInteger(LIMITE_CHAVES) || LIMITE_CHAVES < 16 || LIMITE_CHAVES > 1_000_000) throw new Error('ATENDE_LIMITE_CHAVES inválido');
 let activeRequests = 0;
 const MAX_ACTIVE_REQUESTS = 32;
+// Logins em atraso progressivo seguram uma vaga de MAX_ACTIVE_REQUESTS: no máximo 4 ao mesmo tempo.
+const MAX_LOGINS_ATRASADOS = 4;
+let loginsAtrasados = 0;
+// Pedidos de contato do site: 5 por IP por hora e teto global por dia (só na memória, sem IP em disco).
+const LIMITE_CONTATOS_IP_HORA = 5;
+const ROTULOS_CONTATO = {name:'nome',phone:'telefone',city:'cidade',service:'serviço',company:'empresa',contact:'contato',need:'necessidade'};
+const LIMITE_CONTATOS_DIA = Number(process.env.ATENDE_LIMITE_CONTATOS_DIA || 200);
+if (!Number.isInteger(LIMITE_CONTATOS_DIA) || LIMITE_CONTATOS_DIA < 1 || LIMITE_CONTATOS_DIA > 100_000) throw new Error('ATENDE_LIMITE_CONTATOS_DIA inválido');
 // Apenas o hostname explicitamente configurado para Tailscale Serve e aceito.
 // NUNCA aceitar qualquer *.ts.net e nunca confiar em X-Forwarded-Host.
 const TAILSCALE_HOST = String(process.env.TAILSCALE_HOST || '').trim().toLowerCase();
@@ -66,9 +80,32 @@ const ALLOWED_ORIGINS = new Set([
 const PROXY_CONFIAVEL = process.env.ATENDE_PROXY_CONFIAVEL === '1';
 function visitante(req) {
   const peer=req.socket.remoteAddress||'unknown';
-  if(!PROXY_CONFIAVEL || !['127.0.0.1','::1','::ffff:127.0.0.1'].includes(peer)) return peer;
+  if(!PROXY_CONFIAVEL || !['127.0.0.1','::1','::ffff:127.0.0.1'].includes(peer)) return chaveDoIp(peer);
   const ultimo=String(req.headers['x-forwarded-for']||'').split(',').pop().trim();
-  return /^[0-9a-f.:]{3,45}$/i.test(ultimo) ? ultimo : peer;
+  return chaveDoIp(/^[0-9a-f.:]{3,45}$/i.test(ultimo) ? ultimo : peer);
+}
+// Chave de limite: IPv4 como está; IPv6 agrupado por /64 (um provedor entrega o /64 inteiro a um só cliente).
+function chaveDoIp(ip) {
+  ip=String(ip).replace(/%.*$/,'');
+  const v4=ip.match(/^::ffff:(\d{1,3}(?:\.\d{1,3}){3})$/i);
+  if(v4) return v4[1];
+  if(!net.isIPv6(ip)) return ip;
+  const [esq,dir]=ip.split('::');
+  const grupos=s=>s?s.split(':'):[];
+  const conta=g=>g.reduce((n,x)=>n+(x.includes('.')?2:1),0);
+  const todos=dir===undefined?grupos(esq):[...grupos(esq),...Array(8-conta(grupos(esq))-conta(grupos(dir))).fill('0'),...grupos(dir)];
+  return todos.slice(0,4).map(x=>parseInt(x,16).toString(16)).join(':')+'::/64';
+}
+// Cada categoria tem a própria cota global: excesso no site público não bloqueia login nem painel.
+// O webhook do WhatsApp roda em outra porta (whatsapp.js) e tem limites próprios lá.
+const API_PUBLICAS=new Set(['/api/status','/api/company','/api/chat','/api/chat-demo','/api/lead','/api/commercial-lead']);
+// A demonstração tem cota própria: abuso no chat de teste não derruba o resto do site público.
+const COTA_GLOBAL={publico:1200,painel:600,login:300,demo:120};
+function categoria(method, pathname) {
+  if(method==='POST' && pathname==='/api/auth/login') return 'login';
+  if(method==='POST' && pathname==='/api/chat-demo') return 'demo';
+  if(pathname.startsWith('/api/')) return API_PUBLICAS.has(pathname)?'publico':'painel';
+  return assets[pathname]?.[0]==='interno'?'painel':'publico';
 }
 function securityHeaders(res) {
   res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, private');
@@ -102,15 +139,23 @@ async function body(req, max=16_000) {
   if (!value || typeof value!=='object' || Array.isArray(value)) throw bad(400,'Conteúdo inválido.');
   return value;
 }
-function throttle(key, max=80, windowMs=60_000) {
-  const now=Date.now(), entry=rate.get(key);
-  // Não permitir crescimento ilimitado nem descartar bloqueios ainda ativos.
-  if (!entry && rate.size>=4096) {
-    for (const [k,v] of rate) if(now>=v.expires) rate.delete(k);
-    if(rate.size>=4096)return false;
+function throttle(key, max=80, windowMs=60_000, tabela=rate) {
+  const now=Date.now();
+  let entry=tabela.get(key);
+  // Janela vencida: a chave volta para o fim da fila (o Map guarda a ordem de inclusão).
+  if (entry && now>=entry.expires) { tabela.delete(key); entry=null; }
+  // Sem crescimento ilimitado: tabela cheia remove as vencidas e, se ainda faltar espaço,
+  // descarta as mais antigas (cerca de 10%) em vez de recusar IPs novos.
+  if (!entry && tabela.size>=LIMITE_CHAVES) {
+    for (const [k,v] of tabela) if(now>=v.expires) tabela.delete(k);
+    // Saem primeiro as não bloqueadas: quem já está barrado não se livra do bloqueio enchendo a tabela.
+    // Só bloqueadas na tabela: a mais antiga sai, para a memória continuar limitada.
+    let sobra=tabela.size-LIMITE_CHAVES+Math.ceil(LIMITE_CHAVES/10);
+    if (tabela.size>=LIMITE_CHAVES) for (const [k,v] of tabela) { if(sobra<=0) break; if(v.count<=v.max) { tabela.delete(k); sobra--; } }
+    if (tabela.size>=LIMITE_CHAVES) for (const k of tabela.keys()) { if(sobra--<=0) break; tabela.delete(k); }
   }
-  const value=entry && now<entry.expires ? {...entry, count:Math.min(entry.count+1,max+1)} : {at:now,expires:now+windowMs,count:1};
-  rate.set(key,value);
+  const value=entry ? {...entry, count:Math.min(entry.count+1,max+1)} : {at:now,expires:now+windowMs,count:1,max};
+  tabela.set(key,value);
   return value.count<=max;
 }
 function csrf(req, session) { if (!session || req.headers['x-csrf-token']!==session.csrf) throw bad(403,'Token de segurança inválido. Atualize a página.'); }
@@ -151,6 +196,46 @@ function subscription(input){
   return {plan,status,setupCents:moneyCents(input.setupCents),monthlyCents:moneyCents(input.monthlyCents),nextDueDate:safeDate(input.nextDueDate),updatedAt:new Date().toISOString(),paymentIntegration:false};
 }
 async function companyExists(companyId){return /^[a-f0-9-]{36}$/.test(companyId) && Boolean(await D.empresas.obter(companyId));}
+// Dados da empresa. Os limites cabem no teto de 16 KB por requisição e valem também no banco (esquema 004).
+const DADOS_VAZIOS={horario:'',endereco:'',servicos:[],perguntas:[],atualizadaEm:null};
+function textoDaEmpresa(valor,max,rotulo,variasLinhas=false){
+  if(valor===undefined||valor===null)return '';
+  if(typeof valor!=='string')throw bad(400,`${rotulo}: formato inválido.`);
+  const limpo=valor.replace(/\r\n?/g,'\n').replace(/[\u0000-\u0009\u000B-\u001F\u007F]/g,'').replace(/\n/g,variasLinhas?'\n':' ').trim();
+  if(limpo.length>max)throw bad(400,`${rotulo}: use no máximo ${max} caracteres.`);
+  return limpo;
+}
+function listaDaEmpresa(valor,max,rotulo,montar){
+  if(valor===undefined||valor===null)return [];
+  if(!Array.isArray(valor)||valor.length>max)throw bad(400,`${rotulo}: informe no máximo ${max} itens.`);
+  return valor.map(item=>{if(!item||typeof item!=='object'||Array.isArray(item))throw bad(400,`${rotulo}: formato inválido.`);return montar(item);}).filter(Boolean);
+}
+function dadosDaEmpresa(input){
+  return {
+    horario:textoDaEmpresa(input.horario,300,'Horário',true),
+    endereco:textoDaEmpresa(input.endereco,300,'Endereço'),
+    servicos:listaDaEmpresa(input.servicos,30,'Serviços',item=>{
+      const nome=textoDaEmpresa(item.nome,90,'Nome do serviço'),preco=textoDaEmpresa(item.preco,60,'Preço do serviço');
+      if(!nome&&!preco)return null; // linha em branco no formulário
+      if(!nome)throw bad(400,'Informe o nome de cada serviço com preço.');
+      return {nome,preco};
+    }),
+    perguntas:listaDaEmpresa(input.perguntas,15,'Perguntas',item=>{
+      const pergunta=textoDaEmpresa(item.pergunta,150,'Pergunta'),resposta=textoDaEmpresa(item.resposta,400,'Resposta',true);
+      if(!pergunta&&!resposta)return null;
+      if(!pergunta||!resposta)throw bad(400,'Cada pergunta frequente precisa de pergunta e resposta.');
+      return {pergunta,resposta};
+    })
+  };
+}
+// Atendimento: sempre a empresa da sessão, nunca a da requisição. Só o admin escolhe a empresa.
+async function empresaDosDados(user,pedida){
+  if(user.role!=='admin')return user.companyId;
+  const id=str(pedida,36);
+  if(!id)throw bad(400,'Escolha uma empresa.');
+  if(!await companyExists(id))throw bad(404,'Empresa não encontrada.');
+  return id;
+}
 // Atualização única de cadastros locais antigos: preserva usuários e chamados.
 // Dados anteriores vão para um ambiente de demonstração explicitamente identificado.
 async function migrateLegacy(){
@@ -185,6 +270,9 @@ const assets={
   '/login-bloqueado-meme.png':['publico','login-bloqueado-meme.png','image/png'],
   '/privacidade':['publico','privacidade.html','text/html; charset=utf-8'],
   '/termos':['publico','termos.html','text/html; charset=utf-8'],
+  '/calculadora':['publico','calculadora.html','text/html; charset=utf-8'],
+  '/calculadora.js':['publico','calculadora.js','text/javascript; charset=utf-8'],
+  '/calculadora.css':['publico','calculadora.css','text/css; charset=utf-8'],
   '/style.css':['publico','style.css','text/css; charset=utf-8'],
   '/app.js':['publico','app.js','text/javascript; charset=utf-8'],
   '/geist.woff2':['publico','geist.woff2','font/woff2'],
@@ -196,6 +284,7 @@ const assets={
   '/navegacao.js':['interno','navegacao.js','text/javascript; charset=utf-8'],
   '/navegacao.css':['interno','navegacao.css','text/css; charset=utf-8'],
   '/empresas.js':['interno','empresas.js','text/javascript; charset=utf-8'],
+  '/dados-empresa.js':['interno','dados-empresa.js','text/javascript; charset=utf-8'],
   '/cidades.js':['interno','cidades.js','text/javascript; charset=utf-8'],
   '/municipios.json':['interno','municipios.json','application/json; charset=utf-8'],
   '/acesso':['interno','acesso.html','text/html; charset=utf-8'],
@@ -205,8 +294,9 @@ const assets={
 };
 function requirePage(pathname, s) {
   // Admin sem verificação em duas etapas (quando obrigatória) só vê a tela de acesso, onde ativa.
-  if(s && auth.mfaRequired(s.user) && ['/empresas.js','/cidades.js','/municipios.json','/cliente','/atendimento','/admin'].includes(pathname)) return false;
+  if(s && auth.mfaRequired(s.user) && ['/empresas.js','/dados-empresa.js','/cidades.js','/municipios.json','/cliente','/atendimento','/admin'].includes(pathname)) return false;
   if(['/empresas.js','/cidades.js','/municipios.json'].includes(pathname)) return s && s.user.role==='admin' && !s.user.mustChangePassword;
+  if(pathname==='/dados-empresa.js') return s && ['atendimento','admin'].includes(s.user.role) && !s.user.mustChangePassword;
   if(pathname==='/cliente') return s && s.user.role==='cliente' && !s.user.mustChangePassword;
   if(pathname==='/atendimento') return s && ['atendimento','admin'].includes(s.user.role) && !s.user.mustChangePassword;
   if(pathname==='/admin') return s && s.user.role==='admin' && !s.user.mustChangePassword;
@@ -222,7 +312,19 @@ const server=http.createServer(async (req,res)=>{
     // Aplicar ANTES de autenticar, ler arquivos, interpretar JSON ou chamar IA.
     // Atrás do Caddy local (ATENDE_PROXY_CONFIAVEL=1), o IP vem do X-Forwarded-For; sem isso, do par TCP.
     const peer=visitante(req);
-    if(!throttle('global:requests',1200) || !throttle(`${peer}:requests`,600)) {
+    const cat=categoria(req.method,String(req.url||'').split('?')[0]);
+    // Limites por IP primeiro: o que um IP já tem barrado não desconta da cota global de todos.
+    if(!throttle(`${peer}:requests`,600)) {
+      securityAlerts.record('rate_limit');
+      res.setHeader('Retry-After','60');
+      res.setHeader('Connection','close');
+      throw bad(429,'Muitas solicitações. Aguarde antes de tentar novamente.');
+    }
+    if(cat==='login' && !throttle(`${peer}:login`,40,15*60_000)) {
+      securityAlerts.record('login_limit');
+      res.setHeader('Retry-After','900');throw bad(429,'Muitas tentativas de acesso.');
+    }
+    if(!throttle(`global:${cat}`,COTA_GLOBAL[cat],60_000,rateGlobal)) {
       securityAlerts.record('rate_limit');
       res.setHeader('Retry-After','60');
       res.setHeader('Connection','close');
@@ -244,11 +346,6 @@ const server=http.createServer(async (req,res)=>{
     const host=String(req.headers.host||'').toLowerCase();
     if (!ALLOWED_HOSTS.has(host)) throw bad(403,'Endereço de acesso não permitido.');
     const url=new URL(req.url,'http://localhost'); const pathname=url.pathname;
-    // Login e chat também têm limite próprio antes de acessar os dados.
-    if(req.method==='POST' && pathname==='/api/auth/login' && !throttle(`${peer}:login`,40,15*60_000)) {
-      securityAlerts.record('login_limit');
-      res.setHeader('Retry-After','900');throw bad(429,'Muitas tentativas de acesso.');
-    }
     const s=await auth.session(req);
     if ((req.method==='GET'||req.method==='HEAD') && pathname==='/robots.txt') {
       // Local: não indexar protótipo. Produção: indexar apenas conteúdo público.
@@ -260,7 +357,7 @@ const server=http.createServer(async (req,res)=>{
     }
     if ((req.method==='GET'||req.method==='HEAD') && pathname==='/sitemap.xml' && SITE_ORIGIN) {
       const content='<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'
-        +[SITE_ORIGIN+'/',SITE_ORIGIN+'/privacidade',SITE_ORIGIN+'/termos'].map(x=>'<url><loc>'+x+'</loc></url>').join('\n')+'\n</urlset>';
+        +[SITE_ORIGIN+'/',SITE_ORIGIN+'/privacidade',SITE_ORIGIN+'/termos',SITE_ORIGIN+'/calculadora'].map(x=>'<url><loc>'+x+'</loc></url>').join('\n')+'\n</urlset>';
       res.writeHead(200,{'Content-Type':'application/xml; charset=utf-8','Cache-Control':'public, max-age=3600'});
       return res.end(req.method==='HEAD'?'':content);
     }
@@ -344,6 +441,11 @@ const server=http.createServer(async (req,res)=>{
         if(!c||!inCompany(user,c)) throw bad(404,'Conversa não encontrada.');
         return json(res,200,{item:conversas.completa(c)});
       }
+      if (pathname==='/api/staff/dados-empresa') {
+        const user=allow(s,['atendimento','admin']);requireCompany(user);
+        const empresaId=await empresaDosDados(user,url.searchParams.get('empresa'));
+        return json(res,200,{dados:(await D.dadosEmpresa.obter(escopoDo(user),empresaId))||DADOS_VAZIOS,companyId:empresaId});
+      }
       if (pathname==='/api/admin/plans') {allow(s,['admin']);return json(res,200,{plans:PLANS, statuses:SUB_STATUSES,automaticBilling:false});}
       if (pathname==='/api/admin/companies') {allow(s,['admin']);return json(res,200,{items:await D.empresas.listar()});}
       if (pathname==='/api/admin/users') {
@@ -376,7 +478,7 @@ const server=http.createServer(async (req,res)=>{
       if (pathname==='/api/admin/health') {
         allow(s,['admin']);const users=await D.usuarios.listar(),total=(await D.solicitacoes.contar(null)).total;
         const saude=await D.saude();
-        return json(res,200,{mode:SITE_ORIGIN?'Publicado em '+SITE_ORIGIN:'LOCAL — não publicar',users:users.length,requests:total,sessions:MOTOR==='json'?'somente na memória':'no banco de dados',database:saude.descricao,ai:AI_ENABLED,iaHoje:(u=>`${u.total} de ${u.limiteDia} chamadas (site: ${u.site} de ${u.limiteSiteDia})`)(usoDaIA()),verificacaoDuasEtapas:auth.MFA_ADMIN?'obrigatória para administradores':'opcional (ATENDE_MFA_ADMIN=1 para exigir)'});
+        return json(res,200,{mode:SITE_ORIGIN?'Publicado em '+SITE_ORIGIN:'LOCAL — não publicar',users:users.length,requests:total,sessions:MOTOR==='json'?'somente na memória':'no banco de dados',database:saude.descricao,ai:AI_ENABLED,iaHoje:(u=>`${u.total} de ${u.limiteDia} chamadas (site: ${u.site} de ${u.limiteSiteDia}; demonstração: ${u.demo} de ${u.limiteDemoDia})`)(usoDaIA()),verificacaoDuasEtapas:auth.MFA_ADMIN?'obrigatória para administradores':'opcional (ATENDE_MFA_ADMIN=1 para exigir)'});
       }
     }
     if (req.method!=='POST' && req.method!=='PUT') throw bad(404,'Rota não encontrada.');
@@ -387,16 +489,35 @@ const server=http.createServer(async (req,res)=>{
     if (pathname==='/api/auth/login') {
       const username=str(input.username,30).toLowerCase(),password=input.password;
       if (!username || typeof password!=='string') throw bad(400,'Informe usuário e senha.');
-      if (auth.locked(username)) {
+      // Bloqueio por usuário + IP (quem acerta a senha em outro IP entra) e atraso progressivo por usuário.
+      const ipLogin=visitante(req);
+      if (auth.locked(username,ipLogin)) {
         securityAlerts.record('login_limit');
         await logLoginAttempt(username,'bloqueado','Conta temporariamente bloqueada por tentativas incorretas');
         await audit('login_bloqueado',username,'Tentativa durante bloqueio temporário');
         throw bad(429,'Muitas tentativas para esta conta. Tente novamente mais tarde.');
       }
+      const atraso=auth.loginDelay(username);
+      if(atraso) {
+        // Acima do limite, recusa na hora em vez de esperar (não acumula conexões presas).
+        if(loginsAtrasados>=MAX_LOGINS_ATRASADOS) {
+          securityAlerts.record('login_limit');
+          res.setHeader('Retry-After','60');throw bad(429,'Muitas tentativas de acesso. Aguarde um minuto.');
+        }
+        loginsAtrasados++;
+        try { await new Promise(r=>setTimeout(r,atraso)); } finally { loginsAtrasados--; }
+      }
       const user=await D.usuarios.contaAtiva(username);
-      if(!user || !auth.verifyPassword(password,user)) {
-        auth.fail(username);
-        const justLocked=Boolean(auth.lockInfo(username));
+      // Sempre roda o scrypt (contra um hash fictício se o usuário não existe): o tempo não revela quem existe.
+      // Fila do scrypt lotada: recusa na hora (503) em vez de acumular logins esperando.
+      const senhaCerta=await auth.verifyPasswordAsync(password,user||auth.HASH_FICTICIO).catch(err=>{
+        if(err.code!=='fila_scrypt') throw err;
+        securityAlerts.record('overload');
+        res.setHeader('Retry-After','5');throw bad(503,'Servidor ocupado. Tente novamente em instantes.');
+      });
+      if(!user || !senhaCerta) {
+        auth.fail(username,ipLogin);
+        const justLocked=auth.locked(username,ipLogin);
         await logLoginAttempt(username,'falha',justLocked?'Limite de 5 tentativas incorretas atingido':'Usuário inexistente, inativo ou senha incorreta');
         await audit(justLocked?'login_bloqueio_acionado':'login_falhou',username,justLocked?'Conta temporariamente bloqueada':'Credenciais inválidas');
         throw bad(401,'Usuário ou senha inválidos.');
@@ -406,13 +527,13 @@ const server=http.createServer(async (req,res)=>{
         // Senha certa, falta o código: o front mostra o campo. Código errado conta como tentativa falha.
         if(!codigo) return json(res,401,{error:'Digite o código de 6 dígitos do seu aplicativo autenticador.',mfa:true});
         if(!auth.verifyTotp(user.mfaSecret,codigo,user.id)) {
-          auth.fail(username);
+          auth.fail(username,ipLogin);
           await logLoginAttempt(username,'falha','Código de verificação em duas etapas incorreto');
           await audit('login_mfa_falhou',username,'Código incorreto');
           return json(res,401,{error:'Código incorreto ou expirado. Use o código atual do aplicativo.',mfa:true});
         }
       }
-      auth.forget(username);await auth.clearSession(req,res);
+      auth.forget(username,ipLogin);await auth.clearSession(req,res);
       const csrfToken=await auth.newSession(res,user);
       await logLoginAttempt(user.username,'sucesso','Autenticação realizada');
       await audit('login',user.username);
@@ -428,13 +549,35 @@ const server=http.createServer(async (req,res)=>{
       try { return json(res,200,{answer:await aiAnswer(msg,history,await configAgente(null)),ai:true}); }
       catch { return json(res,200,{answer:siteAnswer(msg),ai:false}); }
     }
+    // "Experimente agora": clínica fictícia (canal 'demo'), sem login. Origem, JSON e 16 KB já foram
+    // conferidos acima. Não grava nada e não loga o conteúdo; teto diário próprio (ATENDE_IA_LIMITE_DEMO_DIA).
+    if(pathname==='/api/chat-demo') {
+      if (!throttle(`${visitante(req)}:chat-demo`,20)) { res.setHeader('Retry-After','60');throw bad(429,'Limite de mensagens. Aguarde um minuto.'); }
+      if(typeof input.message!=='string' || input.message.length>1000) throw bad(400,'Envie uma mensagem de até 1.000 caracteres.');
+      const msg=str(input.message,1000);
+      if(!msg) throw bad(400,'Digite uma mensagem.');
+      const history=(Array.isArray(input.history)?input.history.slice(-8):[])
+        .filter(h=>h&&['user','assistant'].includes(h.role)&&typeof h.text==='string')
+        .map(h=>({role:h.role,text:str(h.text,600)}));
+      if(!AI_ENABLED) return json(res,200,{answer:demonstracaoAnswer(msg),ai:false});
+      // Teto atingido, 15 s sem resposta ou falha do modelo: resposta pronta, sem detalhe interno.
+      try { return json(res,200,{answer:await aiAnswer(msg,history,null,'demo'),ai:true}); }
+      catch { return json(res,200,{answer:demonstracaoAnswer(msg),ai:false}); }
+    }
     if(pathname==='/api/lead' || pathname==='/api/commercial-lead') {
-      if (!throttle(`${visitante(req)}:lead`,15)) throw bad(429,'Muitos envios. Tente novamente mais tarde.');
+      if (!throttle(`${visitante(req)}:lead`,15) || !throttle(`${visitante(req)}:lead-hora`,LIMITE_CONTATOS_IP_HORA,60*60_000)) { res.setHeader('Retry-After','3600');throw bad(429,'Muitos envios. Tente novamente mais tarde.'); }
+      // Campo isca (escondido no formulário): só robôs preenchem. Resposta igual à de sucesso, sem gravar nada.
+      if(input.site!==undefined && input.site!=='') return json(res,201,{ok:true});
       if(input.consent!==true) throw bad(400,'Confirme a autorização para continuar.');
       const isQuote=pathname==='/api/lead';
-      const data=isQuote?{name:str(input.name,90),phone:str(input.phone,30),city:str(input.city,90),service:str(input.service,150)}:{company:str(input.company,100),name:str(input.name,90),contact:str(input.contact,120),need:str(input.need,250)};
+      const limites=isQuote?{name:90,phone:30,city:90,service:150}:{company:100,name:90,contact:120,need:250};
+      // Campo grande demais é recusado (não cortado em silêncio).
+      for(const [campo,max] of Object.entries(limites)) if(input[campo]!==undefined && (typeof input[campo]!=='string' || input[campo].length>max)) throw bad(400,`O campo ${ROTULOS_CONTATO[campo]} aceita até ${max} caracteres.`);
+      const data=Object.fromEntries(Object.entries(limites).map(([campo,max])=>[campo,str(input[campo],max)]));
       if(Object.values(data).some(v=>v.length<2)) throw bad(400,'Preencha todos os campos.');
       if(isQuote && !/^[+()\d\s-]{10,30}$/.test(data.phone)) throw bad(400,'Telefone inválido.');
+      // Teto global por dia: contado só para pedidos válidos, para que lixo não esgote a cota.
+      if(!throttle('global:contatos',LIMITE_CONTATOS_DIA,24*60*60_000,rateGlobal)) { res.setHeader('Retry-After','3600');throw bad(429,'Recebemos muitos pedidos hoje. Tente novamente amanhã.'); }
       await D.contatos.criar(isQuote?'orcamento':'comercial',{id:crypto.randomUUID(),...data,consent:true,createdAt:new Date().toISOString()});
       return json(res,201,{ok:true});
     }
@@ -537,6 +680,14 @@ const server=http.createServer(async (req,res)=>{
       allow(s,['admin','atendimento','cliente']);
       if(input.args!==undefined && (typeof input.args!=='object'||input.args===null||Array.isArray(input.args))) throw bad(400,'args deve ser um objeto.');
       return json(res,200,await ferramentas.executar(toolMatch[1],input.args||{},contextoFerramenta(s),typeof input.confirmacao==='string'?input.confirmacao:undefined));
+    }
+    if(pathname==='/api/staff/dados-empresa' && req.method==='PUT') {
+      const user=allow(s,['atendimento','admin']);requireCompany(user);
+      if(input.confirmed!==true)throw bad(400,'Confirme a ação para continuar.');
+      const empresaId=await empresaDosDados(user,input.companyId);
+      const dados=await D.dadosEmpresa.salvar(escopoDo(user),empresaId,dadosDaEmpresa(input));
+      await audit('dados_empresa_alterados',user.username,'Empresa '+empresaId); // nunca o conteúdo
+      return json(res,200,{ok:true,dados,companyId:empresaId});
     }
     const admin=allow(s,['admin']);
     if(pathname==='/api/admin/diagnostico' && req.method==='POST') {
@@ -681,8 +832,12 @@ async function start() {
   if (WPP) {
     // Mesmo processo (mesma fila de gravação), porta separada: o túnel só enxerga o webhook.
     const webhook=whatsapp.createWebhook(WPP,{
+      // Limite por IP do webhook com a mesma regra do painel (proxy confiável e IPv6 por /64).
+      ipDe:visitante,
       // Configuração própria da empresa do número; sem ela, a do site.
-      answer:async (texto,historico)=>whatsapp.defaultAnswer(texto,historico,(WPP.companyId&&await D.configuracoes.obter(WPP.companyId))||await D.configuracoes.obter(null)),
+      // "Dados da empresa": só os da empresa do número (escopo de atendimento, o RLS filtra); sem ela, nenhum.
+      answer:async (texto,historico)=>whatsapp.defaultAnswer(texto,historico,(WPP.companyId&&await D.configuracoes.obter(WPP.companyId))||await D.configuracoes.obter(null),
+        WPP.companyId?await D.dadosEmpresa.obter({perfil:'atendimento',empresaId:WPP.companyId},WPP.companyId).catch(()=>{console.error('WhatsApp: dados da empresa indisponíveis; respondendo sem eles.');return null;}):null),
       conversas:{
         entrada:msg=>D.conversas.registrarEntrada({telefone:msg.from,nome:msg.nome,texto:msg.texto,idMeta:msg.idMeta,pedeAtendente:conversas.pedeAtendente(msg.texto)},WPP.companyId),
         saida:msg=>D.conversas.registrarSaida({telefone:msg.to,texto:msg.texto,de:msg.de,autor:msg.autor},WPP.companyId)
