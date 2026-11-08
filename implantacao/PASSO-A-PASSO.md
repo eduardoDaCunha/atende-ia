@@ -83,15 +83,27 @@ cd atende-ia/implantacao
 cp .env.exemplo .env
 nano .env        # preencha domínio, senhas e chaves (instruções dentro do arquivo)
 chmod 600 .env
+# Gera o .env.app, que é o que o app recebe: o .env SEM as senhas do dono do banco e sem o que é
+# só do Compose/Caddy/backup. Não mostra nenhum valor na tela.
+grep -vE '^(DATABASE_URL_DONO|POSTGRES_PASSWORD|ATENDE_APP_SENHA|RCLONE_[A-Z_]*|DOMINIO)=' .env > .env.app && chmod 600 .env.app
+# Confere só os NOMES (não podem aparecer DATABASE_URL_DONO, POSTGRES_PASSWORD nem ATENDE_APP_SENHA):
+grep -oE '^[A-Z_]+=' .env.app
 ```
+
+**Sempre que mudar o `.env`, gere o `.env.app` de novo** (as duas linhas `grep` acima) e depois rode
+`docker compose up -d app`. Escreva o `.env` no formato `NOME=valor`, uma variável por linha, sem `export`
+nem espaço antes do nome: outro formato escapa do filtro (por isso a conferência dos nomes).
+
+O `.env` completo (com o dono do banco) fica só para o Compose, o Caddy, o `backup.sh` e o serviço
+`ferramentas`, usado só para comandos pontuais: migrar, importar e manutenção.
 
 ## 7. Subir pela primeira vez
 
 ```bash
 docker compose build
 docker compose up -d postgres
-# Cria as tabelas e define a senha do papel da aplicação:
-docker compose run --rm app node dados/migrar.js
+# Cria as tabelas e define a senha do papel da aplicação (precisa do dono do banco):
+docker compose run --rm ferramentas node dados/migrar.js
 # Cria o primeiro administrador (mostra a senha provisória UMA vez):
 docker compose run --rm -it app node setup-admin.js
 # Sobe tudo:
@@ -106,7 +118,7 @@ Abra `https://seudominio.com.br/acesso`, entre com o admin, troque a senha provi
 e rode a importação, que pode ser repetida sem duplicar nada:
 
 ```bash
-docker compose run --rm -v /caminho/da/pasta/data:/importar:ro -e ATENDE_DATA_DIR=/importar app node dados/importar-json.js
+docker compose run --rm -v /caminho/da/pasta/data:/importar:ro -e ATENDE_DATA_DIR=/importar ferramentas node dados/importar-json.js
 ```
 
 ## 8. Backup diário
@@ -127,7 +139,7 @@ de receber o primeiro cliente.
 1. No painel do admin, cadastre a empresa do cliente e copie o ID dela para `WHATSAPP_EMPRESA_ID` no `.env`.
 2. Na Meta (App > WhatsApp > Configuration): Callback URL `https://seudominio.com.br/webhook/whatsapp`,
    Verify token igual ao `WHATSAPP_VERIFY_TOKEN`, e assine o campo `messages`.
-3. `docker compose up -d app` para aplicar o `.env`.
+3. Gere o `.env.app` de novo (etapa 6) e rode `docker compose up -d app` para aplicar.
 4. Configure o agente daquela empresa no painel (Personalização do agente > escolha a empresa).
 
 Hoje cada instalação atende **um número de WhatsApp**. Vários clientes com números próprios exigem a próxima etapa
@@ -138,10 +150,33 @@ Hoje cada instalação atende **um número de WhatsApp**. Vários clientes com n
 ```bash
 cd ~/atende-ia && GIT_SSH_COMMAND="ssh -i ~/.ssh/atende_deploy" git pull
 cd implantacao && sudo bash backup.sh
-docker compose build app && docker compose run --rm app node dados/migrar.js && docker compose up -d app
+docker compose build app && docker compose run --rm ferramentas node dados/migrar.js && docker compose up -d app
 ```
 
 As sessões ficam no banco: atualizar não desloga ninguém.
+
+### Uma vez só: VM instalada antes do `.env.app`
+
+Se a VM foi instalada quando o app ainda recebia o `.env` inteiro, faça nesta ordem (o `.env.app` vem
+**antes** do `git pull`: o `docker-compose.yml` novo não roda sem ele):
+
+```bash
+cd ~/atende-ia/implantacao && sudo bash backup.sh
+# 1. Gera o .env.app e confere só os nomes (mesmas duas linhas da etapa 6):
+grep -vE '^(DATABASE_URL_DONO|POSTGRES_PASSWORD|ATENDE_APP_SENHA|RCLONE_[A-Z_]*|DOMINIO)=' .env > .env.app && chmod 600 .env.app
+grep -oE '^[A-Z_]+=' .env.app
+# 2. Traz a versão nova e recria o app só com o .env.app:
+cd ~/atende-ia && GIT_SSH_COMMAND="ssh -i ~/.ssh/atende_deploy" git pull
+cd implantacao && docker compose up -d app
+# 3. Confere: tem de mostrar 0 (só conta, não mostra valores).
+docker compose exec app sh -c "env | grep -cE '^(DATABASE_URL_DONO|POSTGRES_PASSWORD|ATENDE_APP_SENHA)='"
+# 4. Testa a manutenção pelo serviço ferramentas:
+sudo bash backup.sh
+```
+
+Depois, abra `https://seudominio.com.br/api/status` e entre no painel. Para voltar atrás: no
+`docker-compose.yml`, troque `env_file: .env.app` por `env_file: .env` e rode `docker compose up -d app`
+(o `.env` não é alterado em nenhum momento).
 
 ## Monitoramento mínimo
 
