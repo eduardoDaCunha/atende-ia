@@ -14,7 +14,7 @@ const ARQ = {
   usuarios: 'usuarios.json', empresas: 'empresas.json', solicitacoes: 'solicitacoes.json',
   conversas: 'conversas-whatsapp.json', auditoria: 'auditoria.json', tentativas: 'tentativas-login.json',
   orcamento: 'leads-demonstracao.json', comercial: 'interesses-comerciais-teste.json', configuracoes: 'configuracoes-agente.json',
-  dadosEmpresa: 'dados-empresa.json',
+  dadosEmpresa: 'dados-empresa.json', chamados: 'chamados.json',
 };
 const MAX_AUDITORIA = 1500, MAX_TENTATIVAS = 700, MAX_MENSAGENS_WPP = 300, MAX_CONVERSAS = 2000;
 const agora = () => new Date().toISOString();
@@ -160,6 +160,30 @@ function criar() {
         const item = { horario: d.horario, endereco: d.endereco, servicos: d.servicos, perguntas: d.perguntas, atualizadaEm: agora() };
         await update(ARQ.dadosEmpresa, mapa => { mapa[empresaId] = item; }, {});
         return item;
+      },
+    },
+
+    chamados: {
+      /** Chamado de suporte técnico. Só na empresa do escopo (o admin não abre chamados). */
+      async criar(escopo, item) {
+        if (!escopo || escopo.perfil === 'admin' || escopo.empresaId !== item.companyId) throw Object.assign(new Error('Empresa fora do seu acesso.'), { status: 403 });
+        await update(ARQ.chamados, list => { list.push({ ...item }); });
+        return { ...item };
+      },
+      /** Do mais recente para o mais antigo. Filtro opcional: { status }. */
+      async listar(escopo, { status } = {}) {
+        return (await read(ARQ.chamados)).filter(x => daEmpresa(escopo, x) && (!status || x.status === status))
+          .sort((a, b) => String(b.criadoEm).localeCompare(String(a.criadoEm))).slice(0, 1000);
+      },
+      /** Status e resposta: só o administrador geral. Chamado inexistente: null. */
+      async atualizar(escopo, id, { status, resposta }) {
+        if (!escopo || escopo.perfil !== 'admin') throw Object.assign(new Error('Seu perfil não tem acesso a esta função.'), { status: 403 });
+        return update(ARQ.chamados, list => {
+          const x = list.find(c => c.id === id);
+          if (!x) return null;
+          Object.assign(x, { status, resposta, atualizadoEm: agora() });
+          return { ...x };
+        });
       },
     },
 

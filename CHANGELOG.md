@@ -1,3 +1,6 @@
+## Em desenvolvimento | Chamados de suporte técnico
+- Atendimento abre chamados de suporte para a administração (tabela `chamados`, migração 005), acompanha status e resposta; admin responde no painel; aviso opcional pelo Telegram (`TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`), sem a descrição; limites de 5 por usuário por hora e `ATENDE_LIMITE_CHAMADOS_DIA` (padrão 100).
+
 ## v0.3.8.3 | Dados permanentes no Windows
 - Cadastro persistente em %LOCALAPPDATA%\AtendeIA\data.
 - Importador conservador, recuperacao offline e trava contra instancias simultaneas.

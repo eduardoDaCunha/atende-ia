@@ -15,6 +15,8 @@ const auth = require('./auth');
 const { AI_ENABLED, MODEL, bad, str, company, normalize, siteAnswer, demonstracaoAnswer, aiAnswer, usoDaIA } = require('./resposta');
 const whatsapp = require('./whatsapp');
 const conversas = require('./conversas');
+// Aviso ao administrador pelo Telegram quando um chamado de suporte é aberto (desligado sem TELEGRAM_*).
+const avisoChamados = require('./aviso').criarAviso(process.env);
 // Camada de dados: JSON (local) ou PostgreSQL (produção), escolhida por ATENDE_BANCO.
 const { dados: camada, escopoDo, MOTOR } = require('./dados');
 const D = camada();
@@ -56,6 +58,11 @@ const LIMITE_CONTATOS_IP_HORA = 5;
 const ROTULOS_CONTATO = {name:'nome',phone:'telefone',city:'cidade',service:'serviço',company:'empresa',contact:'contato',need:'necessidade'};
 const LIMITE_CONTATOS_DIA = Number(process.env.ATENDE_LIMITE_CONTATOS_DIA || 200);
 if (!Number.isInteger(LIMITE_CONTATOS_DIA) || LIMITE_CONTATOS_DIA < 1 || LIMITE_CONTATOS_DIA > 100_000) throw new Error('ATENDE_LIMITE_CONTATOS_DIA inválido');
+// Chamados de suporte técnico: 5 por usuário por hora e teto global por dia (só na memória).
+const LIMITE_CHAMADOS_USUARIO_HORA = 5;
+const LIMITE_CHAMADOS_DIA = Number(process.env.ATENDE_LIMITE_CHAMADOS_DIA || 100);
+if (!Number.isInteger(LIMITE_CHAMADOS_DIA) || LIMITE_CHAMADOS_DIA < 1 || LIMITE_CHAMADOS_DIA > 100_000) throw new Error('ATENDE_LIMITE_CHAMADOS_DIA inválido');
+const STATUS_CHAMADO = ['aberto','em_andamento','resolvido'];
 // Apenas o hostname explicitamente configurado para Tailscale Serve e aceito.
 // NUNCA aceitar qualquer *.ts.net e nunca confiar em X-Forwarded-Host.
 const TAILSCALE_HOST = String(process.env.TAILSCALE_HOST || '').trim().toLowerCase();
@@ -228,6 +235,15 @@ function dadosDaEmpresa(input){
     })
   };
 }
+// Chamados de suporte: texto simples, sem caracteres de controle; tamanho fora do limite é recusado, não cortado.
+function textoDoChamado(valor,min,max,rotulo,variasLinhas=false){
+  if(typeof valor!=='string')throw bad(400,`${rotulo}: formato inválido.`);
+  const limpo=textoDaEmpresa(valor,max,rotulo,variasLinhas);
+  if(limpo.length<min)throw bad(400,`${rotulo}: use de ${min} a ${max} caracteres.`);
+  return limpo;
+}
+const numeroDoChamado=id=>String(id).slice(0,8).toUpperCase();
+const chamadoPublico=(x,autor)=>({id:x.id,numero:numeroDoChamado(x.id),assunto:x.assunto,descricao:x.descricao,status:x.status,resposta:x.resposta||'',criadoEm:x.criadoEm,atualizadoEm:x.atualizadoEm,...(autor?{abertoPor:autor}:{})});
 // Atendimento: sempre a empresa da sessão, nunca a da requisição. Só o admin escolhe a empresa.
 async function empresaDosDados(user,pedida){
   if(user.role!=='admin')return user.companyId;
@@ -285,6 +301,7 @@ const assets={
   '/navegacao.css':['interno','navegacao.css','text/css; charset=utf-8'],
   '/empresas.js':['interno','empresas.js','text/javascript; charset=utf-8'],
   '/dados-empresa.js':['interno','dados-empresa.js','text/javascript; charset=utf-8'],
+  '/chamados.js':['interno','chamados.js','text/javascript; charset=utf-8'],
   '/cidades.js':['interno','cidades.js','text/javascript; charset=utf-8'],
   '/municipios.json':['interno','municipios.json','application/json; charset=utf-8'],
   '/acesso':['interno','acesso.html','text/html; charset=utf-8'],
@@ -294,8 +311,9 @@ const assets={
 };
 function requirePage(pathname, s) {
   // Admin sem verificação em duas etapas (quando obrigatória) só vê a tela de acesso, onde ativa.
-  if(s && auth.mfaRequired(s.user) && ['/empresas.js','/dados-empresa.js','/cidades.js','/municipios.json','/cliente','/atendimento','/admin'].includes(pathname)) return false;
+  if(s && auth.mfaRequired(s.user) && ['/empresas.js','/dados-empresa.js','/chamados.js','/cidades.js','/municipios.json','/cliente','/atendimento','/admin'].includes(pathname)) return false;
   if(['/empresas.js','/cidades.js','/municipios.json'].includes(pathname)) return s && s.user.role==='admin' && !s.user.mustChangePassword;
+  if(pathname==='/chamados.js') return s && ['atendimento','admin'].includes(s.user.role) && !s.user.mustChangePassword;
   if(pathname==='/dados-empresa.js') return s && ['atendimento','admin'].includes(s.user.role) && !s.user.mustChangePassword;
   if(pathname==='/cliente') return s && s.user.role==='cliente' && !s.user.mustChangePassword;
   if(pathname==='/atendimento') return s && ['atendimento','admin'].includes(s.user.role) && !s.user.mustChangePassword;
@@ -445,6 +463,21 @@ const server=http.createServer(async (req,res)=>{
         const user=allow(s,['atendimento','admin']);requireCompany(user);
         const empresaId=await empresaDosDados(user,url.searchParams.get('empresa'));
         return json(res,200,{dados:(await D.dadosEmpresa.obter(escopoDo(user),empresaId))||DADOS_VAZIOS,companyId:empresaId});
+      }
+      // Chamados de suporte: o atendimento vê os da própria empresa (somente leitura); o admin vê todos.
+      if (pathname==='/api/staff/chamados') {
+        const user=allow(s,['atendimento']);requireCompany(user);
+        const [lista,usuarios]=await Promise.all([D.chamados.listar(escopoDo(user)),D.usuarios.listar()]);
+        const nomes=new Map(usuarios.filter(u=>u.companyId===user.companyId).map(u=>[u.id,u.name]));
+        return json(res,200,{items:lista.map(x=>chamadoPublico(x,{nome:nomes.get(x.userId)||'Não informado'}))});
+      }
+      if (pathname==='/api/admin/chamados') {
+        const admin=allow(s,['admin']);
+        const status=str(url.searchParams.get('status'),20);
+        if(status&&!STATUS_CHAMADO.includes(status))throw bad(400,'Status inválido.');
+        const [lista,usuarios,empresas]=await Promise.all([D.chamados.listar(escopoDo(admin),{status}),D.usuarios.listar(),D.empresas.listar()]);
+        const pessoas=new Map(usuarios.map(u=>[u.id,u])),nomesEmpresas=new Map(empresas.map(e=>[e.id,e.name]));
+        return json(res,200,{items:lista.map(x=>({...chamadoPublico(x,{nome:pessoas.get(x.userId)?.name||'Não informado',usuario:pessoas.get(x.userId)?.username||''}),empresa:{id:x.companyId,nome:nomesEmpresas.get(x.companyId)||'Empresa não encontrada'}}))});
       }
       if (pathname==='/api/admin/plans') {allow(s,['admin']);return json(res,200,{plans:PLANS, statuses:SUB_STATUSES,automaticBilling:false});}
       if (pathname==='/api/admin/companies') {allow(s,['admin']);return json(res,200,{items:await D.empresas.listar()});}
@@ -689,7 +722,32 @@ const server=http.createServer(async (req,res)=>{
       await audit('dados_empresa_alterados',user.username,'Empresa '+empresaId); // nunca o conteúdo
       return json(res,200,{ok:true,dados,companyId:empresaId});
     }
+    if(pathname==='/api/staff/chamados' && req.method==='POST') {
+      const user=allow(s,['atendimento']);requireCompany(user);
+      const assunto=textoDoChamado(input.assunto,5,100,'Assunto'),descricao=textoDoChamado(input.descricao,10,2000,'Descrição',true);
+      // Limites contados só para chamados válidos: por usuário (5/hora) e global por dia.
+      if(!throttle(`chamado:${user.id}`,LIMITE_CHAMADOS_USUARIO_HORA,60*60_000,rateGlobal)) { res.setHeader('Retry-After','3600');throw bad(429,'Você abriu muitos chamados na última hora. Tente novamente mais tarde.'); }
+      if(!throttle('global:chamados',LIMITE_CHAMADOS_DIA,24*60*60_000,rateGlobal)) { res.setHeader('Retry-After','3600');throw bad(429,'Recebemos muitos chamados hoje. Tente novamente amanhã.'); }
+      const agora=new Date().toISOString();
+      const item=await D.chamados.criar(escopoDo(user),{id:crypto.randomUUID(),companyId:user.companyId,userId:user.id,assunto,descricao,status:'aberto',resposta:'',criadoEm:agora,atualizadoEm:agora});
+      await audit('chamado_aberto',user.username,'#'+numeroDoChamado(item.id)); // nunca o conteúdo
+      // O aviso não atrasa a resposta e nunca impede o chamado: falhas viram uma linha de log sem detalhes.
+      if(avisoChamados.ativo) void D.empresas.obter(user.companyId).catch(()=>null).then(e=>avisoChamados.chamadoAberto({
+        id:item.id,empresa:e?.name||'',nome:user.name,usuario:user.username,criadoEm:item.criadoEm,assunto:item.assunto,painel:(SITE_ORIGIN||'')+'/admin#chamados'}));
+      return json(res,201,{item:chamadoPublico(item,{nome:user.name})});
+    }
     const admin=allow(s,['admin']);
+    const chamadoMatch=pathname.match(/^\/api\/admin\/chamados\/([a-f0-9-]{36})$/);
+    if(chamadoMatch && req.method==='PUT') {
+      if(input.confirmed!==true)throw bad(400,'Confirme a ação para continuar.');
+      const status=str(input.status,20);
+      if(!STATUS_CHAMADO.includes(status))throw bad(400,'Status inválido.');
+      const resposta=textoDaEmpresa(input.resposta,2000,'Resposta',true);
+      const item=await D.chamados.atualizar(escopoDo(admin),chamadoMatch[1],{status,resposta});
+      if(!item)throw bad(404,'Chamado não encontrado.');
+      await audit('chamado_atualizado',admin.username,`#${numeroDoChamado(item.id)}: ${status}`); // nunca o texto da resposta
+      return json(res,200,{item:chamadoPublico(item,null)});
+    }
     if(pathname==='/api/admin/diagnostico' && req.method==='POST') {
       const nome=input.testarConexoes===true?'diagnostico_testar_conexoes':'diagnostico';
       return json(res,200,(await ferramentas.executar(nome,{},contextoFerramenta(s))).resultado);
@@ -827,6 +885,7 @@ async function start() {
   console.log(`\nAtende.IA v${VERSAO} — http://${HOST}:${PORT} | dados: ${MOTOR}`);
   console.log(SITE_ORIGIN?'Publicado em '+SITE_ORIGIN+' (atrás do proxy HTTPS).':'Painel: /acesso | modo LOCAL, não publicar na internet.');
   console.log(AI_ENABLED?`IA: ${MODEL}`:'IA: demonstração programada.');
+  console.log(avisoChamados.motivo);
   console.log('Os usuarios sao preservados em uma pasta permanente.\n');
   });
   if (WPP) {

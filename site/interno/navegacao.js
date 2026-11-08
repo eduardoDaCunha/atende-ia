@@ -19,7 +19,8 @@
     site: 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18ZM3 12h18M12 3c2.5 2.5 3.5 5.5 3.5 9s-1 6.5-3.5 9c-2.5-2.5-3.5-5.5-3.5-9s1-6.5 3.5-9Z',
     senha: 'M14.5 10a4.5 4.5 0 1 0-3.4 4.4L13 16.5h2v2h2v2h3.5V17l-6.2-6.2c.1-.3.2-.5.2-.8ZM8 9h.01',
     solicitacaoNova: 'M6 3h9l4 4v14H6V3ZM15 3v4h4M12.5 11v6M9.5 14h6',
-    solicitacoes: 'M4 5h16v11H9l-5 4V5ZM8 9l1.5 1.5L12 8'
+    solicitacoes: 'M4 5h16v11H9l-5 4V5ZM8 9l1.5 1.5L12 8',
+    suporte: 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18ZM9.5 9a2.5 2.5 0 1 1 3.5 2.3c-.6.3-1 .9-1 1.6v.6M12 17h.01'
   };
   const SENHA = { id: 'senha', titulo: 'Alterar senha', texto: 'Trocar a senha da sua conta', icone: 'senha', clicar: '#change-password' };
   const SITE = { id: 'site', titulo: 'Ver o site', texto: 'Abrir a página pública', icone: 'site', link: '/' };
@@ -44,6 +45,7 @@
       { grupo: 'Sistema', itens: [
         { id: 'seguranca', titulo: 'Segurança', texto: 'Tentativas de login e bloqueios', icone: 'seguranca', mostrar: ['#security-panel'] },
         { id: 'diagnostico', titulo: 'Diagnóstico', texto: 'Estado do sistema e backups', icone: 'diagnostico', mostrar: ['#health', '#health ~ p.fine'] },
+        { id: 'chamados', titulo: 'Chamados', texto: 'Suporte técnico pedido pelas empresas', icone: 'suporte', mostrar: ['#chamados-admin-box'] },
         { id: 'auditoria', titulo: 'Auditoria', texto: 'Ações registradas no painel', icone: 'auditoria', mostrar: ['#audit', '#refresh-audit'] }
       ] },
       { grupo: 'Outras áreas', itens: [
@@ -56,7 +58,8 @@
         { id: 'fila', titulo: 'Fila', texto: 'Solicitações e respostas', icone: 'fila', contador: true, mostrar: ['#stats', 'main > .columns > .box:first-child > .row', '#staff-list', 'main > .columns > .box:nth-child(2)'] },
         { id: 'whatsapp', titulo: 'WhatsApp', texto: 'Conversas com robô e atendente', icone: 'conversa', whatsapp: true, mostrar: ['#wpp-box'] },
         { id: 'pedidos-site', titulo: 'Pedidos do site', texto: 'Contatos recebidos pelo formulário', icone: 'pedidos', soAdmin: true, mostrar: ['#show-leads', '#leads'], abrir: () => { const lista = document.querySelector('#leads'); if (lista.classList.contains('hidden')) document.querySelector('#show-leads').click(); } },
-        DADOS_EMPRESA
+        DADOS_EMPRESA,
+        { id: 'suporte', titulo: 'Suporte técnico', texto: 'Abrir e acompanhar chamados', icone: 'suporte', mostrar: ['#chamados-box'] }
       ] },
       { grupo: 'Outras áreas', itens: [
         { id: 'administracao', titulo: 'Administração', texto: 'Empresas, usuários e sistema', icone: 'painel', link: '/admin', soAdmin: true },

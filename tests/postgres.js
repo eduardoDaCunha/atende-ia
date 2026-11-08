@@ -63,6 +63,29 @@ const { Client } = require(path.join(root, 'node_modules', 'pg'));
     assert.equal((await app.query('SELECT count(*)::int AS n FROM dados_empresa')).rows[0].n, 0, 'Dados da empresa: sem contexto, nada aparece');
     await app.query('ROLLBACK');
     await assert.rejects(app.query('DELETE FROM auditoria'), /permission denied/, 'A aplicação não apaga a auditoria');
+    // Chamados de suporte: a empresa lê e abre só os próprios; status e resposta só com o admin geral.
+    const agoraC = new Date().toISOString();
+    const chamadoDe = (empresa, autor) => ({ id: crypto.randomUUID(), companyId: empresa, userId: autor.id, assunto: 'Assunto fictício', descricao: 'Descrição fictícia do chamado',
+      status: 'aberto', resposta: '', criadoEm: agoraC, atualizadoEm: agoraC });
+    const cA = await D.chamados.criar({ perfil: 'atendimento', empresaId: A }, chamadoDe(A, clienteA));
+    const cB = await D.chamados.criar({ perfil: 'atendimento', empresaId: B }, chamadoDe(B, clienteB));
+    await app.query('BEGIN'); await app.query("SELECT set_config('app.empresa_id', $1, true)", [A]);
+    assert.deepEqual((await app.query('SELECT id FROM chamados')).rows.map(r => r.id), [cA.id], 'Chamados: A só vê os próprios');
+    assert.equal((await app.query("UPDATE chamados SET status = 'resolvido' WHERE id = $1", [cA.id])).rowCount, 0, 'Chamados: atendimento não altera nem o próprio');
+    assert.equal((await app.query("UPDATE chamados SET status = 'resolvido' WHERE id = $1", [cB.id])).rowCount, 0, 'Chamados: A não altera a B');
+    await app.query('ROLLBACK');
+    await app.query('BEGIN'); await app.query("SELECT set_config('app.empresa_id', $1, true)", [A]);
+    await assert.rejects(app.query(`INSERT INTO chamados (id, empresa_id, usuario_id, assunto, descricao) VALUES ($1,$2,$3,'Assunto x','Descrição x longa')`,
+      [crypto.randomUUID(), B, clienteB.id]), /row-level security/, 'Chamados: A não abre chamado na B');
+    await app.query('ROLLBACK');
+    await assert.rejects(app.query('DELETE FROM chamados'), /permission denied/, 'Chamados: a aplicação não apaga');
+    await app.query('BEGIN');
+    assert.equal((await app.query('SELECT count(*)::int AS n FROM chamados')).rows[0].n, 0, 'Chamados: sem contexto, nada aparece');
+    await app.query('ROLLBACK');
+    assert.equal((await D.chamados.listar({ perfil: 'atendimento', empresaId: A })).length, 1, 'Camada de dados: A lista só o próprio chamado');
+    await assert.rejects(D.chamados.atualizar({ perfil: 'atendimento', empresaId: A }, cA.id, { status: 'resolvido', resposta: '' }), /não tem acesso/, 'Camada de dados: atendimento não altera');
+    assert.equal((await D.chamados.atualizar({ perfil: 'admin', empresaId: null }, cB.id, { status: 'resolvido', resposta: 'Resposta fictícia' })).status, 'resolvido', 'Admin geral altera');
+    assert.equal((await D.chamados.listar({ perfil: 'admin', empresaId: null })).length, 2, 'Admin geral vê todos');
     await app.end();
     // Pela camada de dados, com escopo da empresa A:
     assert.equal(await D.solicitacoes.obter({ perfil: 'atendimento', empresaId: A }, sB.id), null, 'Camada de dados: A não lê a B');

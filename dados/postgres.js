@@ -33,6 +33,8 @@ const conversa = (r, mensagens = []) => ({ id: r.id, telefone: r.telefone, nome:
   mensagens: mensagens.map(m => ({ id: m.id, de: m.de, autor: m.autor, texto: m.texto, em: iso(m.criada_em), ...(m.id_meta ? { idMeta: m.id_meta } : {}) })) });
 const configuracao = r => ({ name: r.nome, assistantName: r.nome_assistente, serviceArea: r.area_atendimento, services: r.servicos,
   policy: r.politica, contact: r.contato, welcome: r.boas_vindas });
+const chamado = r => ({ id: r.id, companyId: r.empresa_id, userId: r.usuario_id, assunto: r.assunto, descricao: r.descricao, status: r.status,
+  resposta: r.resposta, criadoEm: iso(r.criado_em), atualizadoEm: iso(r.atualizado_em) });
 const dadosDaEmpresa = r => ({ horario: r.horario, endereco: r.endereco, servicos: r.servicos, perguntas: r.perguntas, atualizadaEm: iso(r.atualizada_em) });
 
 const SQL_EMPRESAS = `SELECT e.*, a.plano, a.situacao AS sit_assinatura, a.implantacao_centavos, a.mensalidade_centavos,
@@ -280,6 +282,26 @@ function criar(env) {
     },
   };
 
+  // ---------------------------------------------------------------- chamados de suporte técnico
+  // Sempre no escopo de quem pede: o RLS deixa o atendimento abrir e ler os da própria empresa, e só o admin alterar.
+  const chamados = {
+    criar: async (escopo, item) => {
+      if (!escopo || escopo.perfil === 'admin' || escopo.empresaId !== item.companyId) throw Object.assign(new Error('Empresa fora do seu acesso.'), { status: 403 });
+      return tx(escopo, async c => chamado((await c.query(`INSERT INTO chamados (id, empresa_id, usuario_id, assunto, descricao, status, resposta, criado_em, atualizado_em)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`, [item.id, item.companyId, item.userId, item.assunto, item.descricao, item.status, item.resposta,
+        item.criadoEm, item.atualizadoEm])).rows[0]));
+    },
+    listar: (escopo, { status } = {}) => tx(escopo, async c => (await c.query(`SELECT * FROM chamados WHERE ($1::text IS NULL OR status = $1)
+      ORDER BY criado_em DESC, id DESC LIMIT ${LIMITE_LISTA}`, [status || null])).rows.map(chamado)),
+    atualizar: async (escopo, id, { status, resposta }) => {
+      if (!escopo || escopo.perfil !== 'admin') throw Object.assign(new Error('Seu perfil não tem acesso a esta função.'), { status: 403 });
+      return tx(escopo, async c => {
+        const r = (await c.query('UPDATE chamados SET status = $2, resposta = $3, atualizado_em = now() WHERE id = $1 RETURNING *', [id, status, resposta])).rows[0];
+        return r ? chamado(r) : null;
+      });
+    },
+  };
+
   // ---------------------------------------------------------------- sessões
   const sessoes = {
     criar: (chave, s) => tx(SISTEMA, c => c.query('INSERT INTO sessoes (chave, usuario_id, csrf, criada_em, vista_em) VALUES ($1,$2,$3,$4,$5)',
@@ -297,7 +319,7 @@ function criar(env) {
     motor: 'postgres',
     async iniciar() {
       const v = await tx(SISTEMA, async c => (await c.query('SELECT max(versao)::int AS v FROM migracoes_esquema')).rows[0].v);
-      if (v < 4) throw new Error(`Esquema do banco desatualizado (versão ${v}). Rode: node dados/migrar.js`);
+      if (v < 5) throw new Error(`Esquema do banco desatualizado (versão ${v}). Rode: node dados/migrar.js`);
       // Sessões vencidas (8 h de vida, 30 min sem uso) são apagadas na partida.
       await tx(SISTEMA, c => c.query("DELETE FROM sessoes WHERE criada_em < now() - interval '8 hours' OR vista_em < now() - interval '30 minutes'"));
     },
@@ -306,7 +328,7 @@ function criar(env) {
       const v = await tx(SISTEMA, async c => (await c.query('SHOW server_version')).rows[0].server_version);
       return { motor: 'postgres', descricao: `PostgreSQL ${v} com isolamento por empresa (RLS); backup diário pelo script de backup` };
     },
-    usuarios, empresas, solicitacoes, conversas, auditoria, tentativas, contatos, configuracoes, dadosEmpresa, sessoes,
+    usuarios, empresas, solicitacoes, conversas, auditoria, tentativas, contatos, configuracoes, dadosEmpresa, chamados, sessoes,
     /** Leitura em lote no formato dos arquivos (ferramentas de negócio e MCP). */
     lerColecao: nome => tx(SISTEMA, async c => {
       if (nome === 'empresas.json') return (await c.query(SQL_EMPRESAS + ' ORDER BY e.criada_em')).rows.map(empresa);

@@ -74,3 +74,6 @@ button,.primary,.ghost,.link,.tag,.status,.loginbox .return-public{border-radius
 .dados-pergunta label{grid-column:1}
 .dados-pergunta button{grid-column:2;grid-row:1/span 2}
 @media (max-width:640px){.dados-linha,.dados-pergunta{grid-template-columns:1fr}.dados-pergunta button{grid-column:1;grid-row:auto}}
+
+/* Chamados de suporte: descrição com as quebras de linha que a pessoa digitou. */
+.chamado-texto{white-space:pre-wrap;overflow-wrap:anywhere}

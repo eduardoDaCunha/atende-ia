@@ -3,7 +3,7 @@
 // Ao criar um módulo novo usado pelo server.js, inclua-o SÓ aqui.
 const fs = require('node:fs/promises');
 const path = require('node:path');
-const ARQUIVOS = ['server.js','auth.js','store.js','resposta.js','whatsapp.js','conversas.js','diagnostico.js','sanitizar.js','ferramentas.js','catalogo.js','negocio.js','setup-admin.js','empresa.json'];
+const ARQUIVOS = ['server.js','auth.js','store.js','resposta.js','whatsapp.js','conversas.js','diagnostico.js','sanitizar.js','aviso.js','ferramentas.js','catalogo.js','negocio.js','setup-admin.js','empresa.json'];
 const PASTAS = ['dados'];
 async function copiar(origem, destino) {
   await fs.mkdir(destino, { recursive: true });
