@@ -34,6 +34,13 @@ REM Modelo aprovado, corpo com um parametro de texto {{1}} para o resumo.
 set "SECURITY_WHATSAPP_TEMPLATE="
 set "SECURITY_WHATSAPP_LANGUAGE=pt_BR"
 
+REM --- Aviso de chamados de suporte pelo Telegram (opcional). Sem os dois, o aviso fica desligado.
+REM Token do bot (fale com o @BotFather no Telegram) e ID do chat que recebe os avisos.
+REM set "TELEGRAM_BOT_TOKEN="
+REM set "TELEGRAM_CHAT_ID="
+REM Teto de chamados de suporte por dia, somando todas as empresas. Padrao: 100.
+REM set "ATENDE_LIMITE_CHAMADOS_DIA=100"
+
 REM ---- Banco de dados (opcional no Windows) ----
 REM Padrao: arquivos JSON na pasta de dados permanentes. Para testar com PostgreSQL
 REM (ex.: o banco de teste do atende-ia-dados, porta 55432), rode "npm.cmd install" e preencha:

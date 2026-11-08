@@ -103,6 +103,10 @@ async function importar({ pasta = process.env.ATENDE_DATA_DIR, url = process.env
       await um('dados da empresa', `INSERT INTO dados_empresa (empresa_id, horario, endereco, servicos, perguntas, atualizada_em)
         VALUES ($1,$2,$3,$4::jsonb,$5::jsonb,coalesce($6::timestamptz, now())) ON CONFLICT (empresa_id) DO NOTHING`,
       [empresaId, d.horario || '', d.endereco || '', JSON.stringify(d.servicos || []), JSON.stringify(d.perguntas || []), d.atualizadaEm || null]);
+    for (const x of ler('chamados.json'))
+      await um('chamados', `INSERT INTO chamados (id, empresa_id, usuario_id, assunto, descricao, status, resposta, criado_em, atualizado_em)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,coalesce($8::timestamptz, now()),coalesce($9::timestamptz, now())) ON CONFLICT (id) DO NOTHING`,
+      [x.id, x.companyId, x.userId, x.assunto, x.descricao, x.status || 'aberto', x.resposta || '', x.criadoEm || null, x.atualizadoEm || null]);
     await c.query('COMMIT');
   } catch (e) { await c.query('ROLLBACK').catch(() => {}); throw e; }
   finally { await c.end(); }

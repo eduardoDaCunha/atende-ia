@@ -17,6 +17,7 @@ Os dois devolvem objetos **no mesmo formato** dos arquivos JSON originais, entã
 4. Mudança de esquema = arquivo novo em `esquema/` (`003_...sql`), nunca editar um já aplicado. `node dados/migrar.js` aplica só os que faltam.
 5. Sessões: memória no JSON (reiniciar desloga), tabela `sessoes` no PostgreSQL (reiniciar não desloga). Só o hash do token é guardado.
 6. Dados da empresa (`dadosEmpresa.obter` e `salvar`): `dados-empresa.json` no JSON, tabela `dados_empresa` no PostgreSQL. Sempre recebem o escopo de quem pede, para o RLS valer.
+7. Chamados de suporte técnico (`chamados.criar`, `listar` e `atualizar`): `chamados.json` no JSON, tabela `chamados` no PostgreSQL (migração 005). O atendimento abre e lê os da própria empresa; só o admin geral muda status e resposta (o RLS também barra o UPDATE). Sem DELETE.
 
 ## Scripts
 
