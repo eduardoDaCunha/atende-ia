@@ -41,6 +41,12 @@ Desenvolvimento constrói → Qualidade testa → Segurança revisa → Eduardo 
   - Qualidade: rodar `bash rodar-testes.sh`, procurar bugs, testar os fluxos novos.
   - Segurança: procurar falhas comuns (segredos expostos, injeção, falta de validação, falhas de RLS, logs com dado pessoal) e RELATAR. Em revisão, não corrigir sem aprovação.
 
+### Segurança e robustez do servidor: agente "Ideia"
+- Área: `auth.js`, `server.js`, `whatsapp.js`, `resposta.js`, `implantacao/` (arquivos do repositório, nunca o servidor) e os testes correspondentes em `tests/`.
+- Papel: corrigir, com mudanças pequenas e pontuais, o que Segurança e Qualidade relatarem. Mostra o plano em arquivo em `relatorios\` antes de editar e espera o "pode" do Eduardo.
+- Só um agente edita por vez (o `server.js` é compartilhado). NÃO acessa produção e NÃO faz git.
+- Tarefa atual: M1, separar as credenciais de dono do banco do container do app (`.env.app` para o app; serviço `ferramentas` com o `.env` completo só para migrar, manutenção, importar e criar/recuperar admin). Ajustar `docker-compose.yml`, `backup.sh`, `PASSO-A-PASSO.md` e `dados/LEIA-ME.md`.
+
 ## Departamentos futuros (sem agente)
 - Infra: Docker, backup, monitoramento, servidor. Só o Eduardo supervisiona.
 - Produto e Conteúdo: textos do site, planos, materiais de venda.

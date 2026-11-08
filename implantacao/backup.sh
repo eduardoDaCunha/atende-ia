@@ -5,7 +5,7 @@
 # 1. pg_dump comprimido em /var/backups/atende (só root lê), guardando os últimos 14 dias.
 # 2. Se RCLONE_DESTINO estiver definido no .env (ex.: r2:atende-backups), copia também para FORA
 #    da VM. Um backup que só existe na mesma máquina se perde junto com ela.
-# 3. Roda a retenção (dados/manutencao.js).
+# 3. Roda a retenção (dados/manutencao.js) pelo serviço ferramentas.
 set -euo pipefail
 cd "$(dirname "$0")"
 DESTINO=/var/backups/atende
@@ -26,4 +26,5 @@ else
   echo "AVISO: sem cópia externa (defina RCLONE_DESTINO no .env e instale o rclone)."
 fi
 
-docker compose run --rm -T app node dados/manutencao.js
+# Manutenção precisa do dono do banco: roda no serviço ferramentas (o app não tem essa senha).
+docker compose run --rm -T ferramentas node dados/manutencao.js

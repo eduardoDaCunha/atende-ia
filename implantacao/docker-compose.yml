@@ -32,11 +32,33 @@ services:
     image: atende-ia:atual
     restart: unless-stopped
     network_mode: host
-    env_file: .env
+    # Só o .env.app (gerado a partir do .env, PASSO-A-PASSO etapa 6): o app não recebe as senhas
+    # do dono do banco (DATABASE_URL_DONO, POSTGRES_PASSWORD, ATENDE_APP_SENHA).
+    env_file: .env.app
     environment:
       ATENDE_BANCO: postgres
       ATENDE_PROXY_CONFIAVEL: "1"
       PORT: "3011"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+
+  # Comandos pontuais que precisam do dono do banco (migrar, importar, manutenção).
+  # Não sobe com "docker compose up"; use: docker compose run --rm ferramentas node dados/migrar.js
+  # pull_policy never: usa só a imagem construída aqui pelo app, nunca uma baixada da internet.
+  ferramentas:
+    image: atende-ia:atual
+    pull_policy: never
+    profiles: ["ferramentas"]
+    network_mode: host
+    env_file: .env
+    environment:
+      ATENDE_BANCO: postgres
     depends_on:
       postgres:
         condition: service_healthy

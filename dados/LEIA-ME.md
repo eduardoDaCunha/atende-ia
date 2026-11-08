@@ -26,6 +26,8 @@ Os dois devolvem objetos **no mesmo formato** dos arquivos JSON originais, entã
 | `node dados/importar-json.js` | importa a pasta `data` do protótipo (repetível, não duplica) | `DATABASE_URL_DONO`, `ATENDE_DATA_DIR` |
 | `node dados/manutencao.js` | retenção diária (90 dias login, 180 dias contatos, 2 anos auditoria) | `DATABASE_URL_DONO` |
 
+Em produção, esses três rodam pelo serviço `ferramentas` (`docker compose run --rm ferramentas node dados/migrar.js`), que recebe o `.env` completo. O serviço `app` recebe só o `.env.app`, sem `DATABASE_URL_DONO`, `POSTGRES_PASSWORD` nem `ATENDE_APP_SENHA`; `setup-admin.js` e `recuperar-admin.js` usam só a `DATABASE_URL` e continuam no `app`. Veja `implantacao/PASSO-A-PASSO.md`, etapa 6.
+
 ## Testes
 
 - `bash rodar-testes.sh` — todas as suítes no motor JSON.
