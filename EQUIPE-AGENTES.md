@@ -6,7 +6,7 @@ Complementa o CLAUDE.md (que traz como executar, testar e a estrutura do projeto
 1. NUNCA ler, imprimir, copiar ou alterar `.env`, `config-local.bat`, chaves SSH, tokens, senhas ou qualquer segredo. Se uma tarefa exigir um segredo, pare e avise.
 2. NUNCA acessar o servidor de produção (ssh, docker no servidor) nem fazer deploy. Subir para produção é decisão do Eduardo.
 3. Trabalhe só na SUA área (veja "Departamentos"). Se precisar mexer em arquivo de outra área, avise antes e espere.
-4. Todos os agentes trabalham na MESMA pasta e na MESMA branch (`novas-funcoes`). NÃO troque de branch, NÃO faça commit, push, merge, reset ou checkout: quem faz o git é o Eduardo. Nunca mexa na `main`.
+4. Todos os agentes trabalham na MESMA pasta e na branch da tarefa atual, criada pelo Eduardo (por exemplo `cnpj-no-site`; confira com `git branch --show-current`, sem alterar nada). NÃO troque de branch, NÃO faça commit, push, merge, reset ou checkout: quem faz o git é o Eduardo. Nunca mexa na `main`; se a branch atual for a `main`, pare e avise.
 5. Antes de apagar arquivos, mudar dependências ou alterar o esquema do banco, peça confirmação. Mudança de esquema = novo arquivo em `dados/esquema/`.
 6. Dados só pela camada `dados/`. Módulo novo usado pelo `server.js` entra SÓ em `tests/arquivos-servidor.js` (regra do CLAUDE.md).
 7. Não invente dados, estatísticas, clientes ou depoimentos. Use só dados reais ou claramente fictícios.
