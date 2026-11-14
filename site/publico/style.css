@@ -320,6 +320,7 @@ h3 {
 .foot-col li + li { margin-top: 6px; }
 .foot-col a { color: var(--text); text-underline-offset: 3px; text-decoration-color: var(--field); }
 .foot-col a:hover { text-decoration-color: var(--text); }
+.foot-legal { grid-column: 1 / -1; padding-top: 24px; border-top: 1px solid var(--line); overflow-wrap: anywhere; }
 
 /* 7. Hero */
 .hero { padding-block: clamp(48px, 6vw, 88px) clamp(40px, 4.5vw, 64px); }
@@ -691,6 +692,9 @@ dialog::backdrop { background: var(--backdrop); }
 .legal-body section:first-child { padding-top: 0; border-top: 0; }
 .legal-body h2 { margin-bottom: 12px; font-size: var(--fs-h3); line-height: var(--lh-h3); font-weight: 600; letter-spacing: -0.02em; }
 .legal-body p { color: var(--text-2); }
+.legal-body p + p, .legal-body p + ul, .legal-body ul + p { margin-top: 12px; }
+.legal-body ul { padding-left: 1.25em; list-style: disc; color: var(--text-2); }
+.legal-body li + li { margin-top: 6px; }
 .legal-body code { font: inherit; font-weight: 500; color: var(--text); }
 .legal-body a { color: var(--text); text-underline-offset: 3px; }
 
