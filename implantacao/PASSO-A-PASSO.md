@@ -134,6 +134,67 @@ Teste agora com `sudo bash backup.sh`. **Guarde uma cópia fora da VM**: instale
 Para restaurar: `sudo bash restaurar.sh /var/backups/atende/ARQUIVO.dump`. Faça um teste de restauração antes
 de receber o primeiro cliente.
 
+**A senha e o sal do `crypt` do rclone ficam só no seu gerenciador de senhas.** Sem eles, nem você lê as cópias
+externas: perder a VM e o gerenciador ao mesmo tempo é perder os backups.
+
+### Regras de retenção
+
+- Na VM: as cópias do banco ficam **14 dias** (`/var/backups/atende`); os logs do Docker, no máximo 5 arquivos de 10 MB por serviço.
+- Fora da VM: as cópias do banco e os logs ficam **90 dias**. A poda roda no fim do `backup.sh` e:
+  - só roda se a cópia externa **daquela execução** deu certo;
+  - só apaga nomes com o padrão esperado (`atende-*.dump` na pasta do `RCLONE_DESTINO`, sem descer para subpastas,
+    e `AAAA-MM-DD/HH.log.gz` dentro da pasta de logs), nunca a raiz inteira;
+  - **não poda o banco** se houver 7 cópias ou menos no destino, nem se a poda deixaria menos de 7;
+  - registra só números no `/var/log/atende-backup.log`; uma falha vira `AVISO:` e não interrompe o backup.
+
+### Antes de ligar a poda: Backblaze (no painel, uma vez só)
+
+Faça isto **antes** do primeiro `backup.sh` com a versão que tem a poda:
+
+1. **Object Lock** (impede que um invasor com acesso à VM apague as cópias com a chave do rclone):
+   Backblaze > *Buckets* > `atende-backups-...` > *Object Lock* > ativar, com **retenção padrão de 90 dias** e modo
+   **Governance**. **Nunca use o modo Compliance**: nele, nem você nem o suporte da Backblaze conseguem apagar ou
+   encurtar a retenção, e um erro de configuração fica pago até o fim do prazo.
+   A chave do rclone que fica na VM **não** pode ter a permissão `bypassGovernance` (as chaves comuns de leitura e
+   escrita não têm). Com o Object Lock, um arquivo só pode ser apagado depois dos 90 dias, o que casa com a poda.
+2. **Lifecycle Settings**: troque "Keep all versions" por **"Keep only the last version of the file"**. Com "Keep all
+   versions", o `rclone delete` só esconde o arquivo e ele continua guardado (e cobrado).
+3. Teste a poda sem apagar nada e confira a linha `Poda (...) seriam removido(s)` no fim:
+   ```bash
+   ATENDE_PODA_TESTE=1 sudo -E bash backup.sh
+   # ou à mão, só listando (troque b2cripto:banco pelo seu RCLONE_DESTINO):
+   sudo rclone delete --dry-run --max-depth 1 --min-age 90d --include 'atende-*.dump' b2cripto:banco
+   sudo rclone delete --dry-run --min-age 90d --include '/????-??-??/??.log.gz' b2cripto:logs
+   ```
+4. Um ou dois dias depois da primeira poda real (a Backblaze apaga os arquivos escondidos uma vez por dia):
+   `sudo rclone ls b2cripto:` não deve listar nada com mais de 90 dias, e `sudo rclone ls --b2-versions b2cripto:`
+   não deve mostrar versões antigas. Com o `crypt` por cima, o `--b2-versions` pode não decifrar os nomes e não
+   listar nada; nesse caso confira pelo remoto B2 cru (`sudo rclone ls --b2-versions NOME-DO-REMOTO-B2:atende-backups-...`):
+   os nomes aparecem embaralhados, mas dá para contar.
+
+### Logs fora da VM
+
+O `logs-fora.sh` envia, de hora em hora, os logs da hora anterior (app, Caddy, `/var/log/auth.log` e as linhas novas
+do log do backup) para `<remoto>:logs/AAAA-MM-DD/HH.log.gz` (hora em UTC), criptografados pelo `crypt`. O remoto é o
+mesmo do `RCLONE_DESTINO`; para outro lugar, defina `RCLONE_LOGS=remoto:pasta` no `.env` (fica fora do `.env.app`).
+Ele nunca mostra o conteúdo dos logs: escreve uma linha por execução (`Logs fora ok` ou `AVISO:`). Se o envio falhar,
+o arquivo fica em `/var/lib/atende-logs/pendente` e vai na execução seguinte.
+
+```bash
+sudo bash logs-fora.sh          # teste: deve terminar com "Logs fora ok: 1 arquivo(s) enviado(s)."
+sudo crontab -e
+# acrescente a linha (aos 5 minutos de cada hora):
+5 * * * * cd /home/ubuntu/atende-ia/implantacao && bash logs-fora.sh >> /var/log/atende-logs-fora.log 2>&1
+```
+
+Conferir e ler:
+
+```bash
+sudo rclone ls b2cripto:logs/
+sudo rclone cat b2cripto:logs/2026-11-14/10.log.gz | zcat | less
+tail /var/log/atende-logs-fora.log     # só linhas de ok ou AVISO
+```
+
 ## 9. WhatsApp
 
 1. No painel do admin, cadastre a empresa do cliente e copie o ID dela para `WHATSAPP_EMPRESA_ID` no `.env`.
@@ -154,6 +215,10 @@ docker compose build app && docker compose run --rm ferramentas node dados/migra
 ```
 
 As sessões ficam no banco: atualizar não desloga ninguém.
+
+Quando a versão nova muda o `docker-compose.yml` (por exemplo, limites de memória ou de logs), aplique com
+`sudo bash backup.sh` e depois `docker compose up -d`: o Compose recria os containers que mudaram. O PostgreSQL
+volta em segundos e os dados ficam no volume.
 
 ### Uma vez só: VM instalada antes do `.env.app`
 
@@ -182,6 +247,7 @@ Depois, abra `https://seudominio.com.br/api/status` e entre no painel. Para volt
 
 - Crie um monitor gratuito (ex.: UptimeRobot) para `https://seudominio.com.br/api/status`, com alerta por e-mail.
 - `docker compose ps` mostra se tudo está de pé; `docker compose logs --since 1h app` mostra erros recentes.
+- `tail /var/log/atende-backup.log /var/log/atende-logs-fora.log`: procure linhas com `AVISO:`.
 
 ## Quando sair do gratuito
 
