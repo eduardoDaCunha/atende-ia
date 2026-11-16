@@ -7,6 +7,14 @@
 # (portas 80 e 443). O PostgreSQL fica preso ao 127.0.0.1 da VM.
 name: atende
 
+# Logs no disco da VM: no máximo 5 arquivos de 10 MB por serviço. Os logs vão para fora da VM
+# pelo logs-fora.sh (cron de hora em hora, PASSO-A-PASSO etapa 8).
+x-logs: &logs
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
 services:
   postgres:
     image: postgres:17
@@ -26,6 +34,7 @@ services:
       timeout: 3s
       retries: 30
     shm_size: 128mb
+    logging: *logs
 
   app:
     build: ..
@@ -47,6 +56,13 @@ services:
       - /tmp
     security_opt:
       - no-new-privileges:true
+    # O app roda como usuário comum em portas acima de 1024: não precisa de nenhuma capability.
+    cap_drop: [ALL]
+    # Limites para um vazamento ou ataque no app não derrubar o PostgreSQL nem o Caddy.
+    pids_limit: 256
+    mem_limit: 1g
+    memswap_limit: 1g     # mesmo valor: sem swap além do limite
+    logging: *logs
 
   # Comandos pontuais que precisam do dono do banco (migrar, importar, manutenção).
   # Não sobe com "docker compose up"; use: docker compose run --rm ferramentas node dados/migrar.js
@@ -67,6 +83,7 @@ services:
       - /tmp
     security_opt:
       - no-new-privileges:true
+    cap_drop: [ALL]
 
   caddy:
     image: caddy:2
@@ -80,6 +97,7 @@ services:
       - caddy_config:/config
     depends_on:
       - app
+    logging: *logs
 
 volumes:
   banco:
