@@ -101,6 +101,8 @@ function connectContact() {
   document.querySelectorAll('[data-open-contact]').forEach(button => button.addEventListener('click', () => dialog.showModal()));
   document.querySelector('#close-commercial').addEventListener('click', () => dialog.close());
   dialog.addEventListener('click', event => { if (event.target === dialog) dialog.close(); });
+  /* Com o cartão de agradecimento na tela, o primeiro Esc fecha só o cartão; sem cartão, o Esc funciona como antes. */
+  dialog.addEventListener('cancel', event => { if (fecharAgradecimento()) event.preventDefault(); });
   contactForm.addEventListener('submit', async event => {
     event.preventDefault();
     const button = contactForm.querySelector('[type="submit"]');
@@ -115,6 +117,7 @@ function connectContact() {
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || 'Não foi possível enviar o pedido.');
       feedback.textContent = 'Pedido registrado para a equipe. Obrigado.';
+      mostrarAgradecimento();
       contactForm.reset();
     } catch (error) {
       feedback.textContent = error.message;
@@ -122,6 +125,71 @@ function connectContact() {
       button.disabled = false;
     }
   });
+}
+
+/* Cartão de agradecimento: só depois que o servidor aceita o pedido. Popover manual, para ficar por cima do
+   diálogo modal sem escurecer a página nem roubar o foco. 5 s no total: 0,6 s entrando, 3,8 s legível, 0,6 s saindo. */
+const AGRADECIMENTO_SAIDA_MS = 4400;
+const AGRADECIMENTO_TOTAL_MS = 5000;
+const AGRADECIMENTO_ANIMACAO_MS = 600;
+let agradecimento = null;
+let agradecimentoTimers = [];
+
+function limparTimersAgradecimento() {
+  agradecimentoTimers.forEach(clearTimeout);
+  agradecimentoTimers = [];
+}
+
+function agradecimentoAberto() {
+  return Boolean(agradecimento && agradecimento.matches(':popover-open'));
+}
+
+function esconderAgradecimento() {
+  limparTimersAgradecimento();
+  if (!agradecimento) return;
+  agradecimento.classList.remove('entrando', 'saindo');
+  if (agradecimentoAberto()) agradecimento.hidePopover();
+}
+
+/* Inicia a saída; devolve true se havia cartão na tela. */
+function fecharAgradecimento() {
+  if (!agradecimentoAberto()) return false;
+  if (agradecimento.classList.contains('saindo')) return true;
+  limparTimersAgradecimento();
+  agradecimento.classList.remove('entrando');
+  agradecimento.classList.add('saindo');
+  agradecimentoTimers.push(setTimeout(esconderAgradecimento, AGRADECIMENTO_ANIMACAO_MS));
+  return true;
+}
+
+function mostrarAgradecimento() {
+  if (typeof HTMLElement.prototype.showPopover !== 'function') return;
+  if (!agradecimento) {
+    agradecimento = document.createElement('div');
+    agradecimento.className = 'agradecimento';
+    agradecimento.setAttribute('popover', 'manual');
+    agradecimento.setAttribute('role', 'status');
+    agradecimento.setAttribute('aria-live', 'polite');
+    const titulo = document.createElement('strong');
+    titulo.textContent = 'Obrigado!';
+    const texto = document.createElement('p');
+    texto.textContent = 'Recebemos seu pedido! Nossa equipe entrará em contato em breve.';
+    agradecimento.append(titulo, texto);
+    agradecimento.addEventListener('click', fecharAgradecimento);
+    document.body.append(agradecimento);
+    document.addEventListener('keydown', event => {
+      if (event.key === 'Escape' && !event.defaultPrevented && fecharAgradecimento()) event.preventDefault();
+    });
+  }
+  limparTimersAgradecimento();
+  agradecimento.classList.remove('entrando', 'saindo');
+  /* Fecha e reabre para o popover voltar ao topo (acima do diálogo) e a animação recomeçar. */
+  if (agradecimentoAberto()) agradecimento.hidePopover();
+  agradecimento.showPopover();
+  void agradecimento.offsetWidth;
+  agradecimento.classList.add('entrando');
+  agradecimentoTimers.push(setTimeout(fecharAgradecimento, AGRADECIMENTO_SAIDA_MS));
+  agradecimentoTimers.push(setTimeout(esconderAgradecimento, AGRADECIMENTO_TOTAL_MS));
 }
 
 /* Telas do console: abas com teclado (setas, Home e End). */

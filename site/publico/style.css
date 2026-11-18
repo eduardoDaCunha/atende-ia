@@ -673,6 +673,43 @@ dialog::backdrop { background: var(--backdrop); }
 .consent a { color: var(--text); text-underline-offset: 3px; }
 
 .form-feedback { min-height: 1.5em; font-size: var(--fs-small); line-height: var(--lh-small); font-weight: 400; color: var(--text); }
+
+/* Cartão de agradecimento do formulário (popover criado pelo app.js). Sem fundo escuro: não bloqueia a página. */
+.agradecimento {
+  inset: 0;
+  width: min(360px, calc(100vw - 32px));
+  height: fit-content;
+  margin: auto;
+  padding: 28px 24px;
+  overflow: visible;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--bg-band);
+  color: var(--text);
+  text-align: center;
+  box-shadow: 0 24px 60px rgb(0 0 0 / 0.35);
+  cursor: pointer;
+  transform-origin: 50% 100%;
+}
+.agradecimento::backdrop { background: transparent; }
+.agradecimento strong { display: block; font-size: 1.75rem; line-height: 1.1; font-weight: 600; color: var(--accent); }
+.agradecimento p { margin-top: 10px; font-size: var(--fs-body); line-height: var(--lh-body); font-weight: 400; }
+.agradecimento.entrando { animation: agradecimento-entra 0.6s cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+.agradecimento.saindo { animation: agradecimento-sai 0.6s ease-in both; }
+@keyframes agradecimento-entra {
+  from { opacity: 0; transform: perspective(800px) translateY(40px) rotateX(55deg) rotateY(-20deg) scale(0.85); }
+  to { opacity: 1; transform: perspective(800px) translateY(0) rotateX(0) rotateY(0) scale(1); }
+}
+@keyframes agradecimento-sai {
+  from { opacity: 1; transform: perspective(800px) translateY(0) rotateX(0) rotateY(0) scale(1); }
+  to { opacity: 0; transform: perspective(800px) translateY(-30px) rotateX(-45deg) rotateY(20deg) scale(0.9); }
+}
+@keyframes agradecimento-fade-entra { from { opacity: 0; } to { opacity: 1; } }
+@keyframes agradecimento-fade-sai { from { opacity: 1; } to { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) {
+  .agradecimento.entrando { animation-name: agradecimento-fade-entra; }
+  .agradecimento.saindo { animation-name: agradecimento-fade-sai; }
+}
 .form-feedback:empty { display: none; }
 
 /* 13. Páginas legais */
