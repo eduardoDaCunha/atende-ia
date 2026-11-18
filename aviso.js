@@ -5,8 +5,9 @@
  *  linha de log, sem valores. Sem dependências: usa node:https.
  *  Texto puro (sem parse_mode, evita injeção de formatação) e SEM a descrição do chamado.
  *  Falha do Telegram nunca impede gravar o chamado: o log diz só "Aviso do chamado indisponível".
- *  Também avisa pedido de contato do site (contatoRecebido): só tipo, hora e link do painel,
- *  NUNCA dados do visitante. Falha: "Aviso de contato indisponível".
+ *  Também avisa pedido de contato do site (contatoRecebido): número curto, hora e os dados do
+ *  formulário (lista fechada de campos, cada um limpo e cortado). Os dados do visitante NUNCA vão
+ *  para o log. Falha: "Aviso de contato indisponível".
  */
 'use strict';
 const https = require('node:https');
@@ -21,6 +22,11 @@ const limpar = (v, max) => String(v ?? '').replace(/[\u0000-\u001F\u007F]/g, ' '
 const numeroDo = id => String(id || '').slice(0, 8).toUpperCase();
 function quando(iso) {
   const partes = new Intl.DateTimeFormat('pt-BR', { timeZone: 'America/Sao_Paulo', day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date(iso));
+  return partes.replace(',', '') + ' (horário de Brasília)';
+}
+/** Igual a quando(), com segundos. Só para o aviso de contato; quando() é a dos chamados. */
+function quandoComSegundos(iso) {
+  const partes = new Intl.DateTimeFormat('pt-BR', { timeZone: 'America/Sao_Paulo', day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }).format(new Date(iso));
   return partes.replace(',', '') + ' (horário de Brasília)';
 }
 
@@ -38,11 +44,29 @@ function montarMensagem({ id, empresa, nome, usuario, criadoEm, assunto, painel 
 
 const TIPOS_CONTATO = new Set(['orcamento', 'comercial']);
 
-/** Texto do aviso de contato. Só tipo, hora e link: nunca recebe dados do visitante. */
-function montarContato({ tipo, criadoEm, painel }) {
+// Campos do visitante: além do limpar() (controles ASCII e espaços), tira controles C1 e caracteres
+// invisíveis ou de direção (zero-width, separadores de linha, LRE/RLE/PDF/LRO/RLO, isolados, BOM),
+// que permitiriam disfarçar o texto. Só escapes aqui: nenhum caractere invisível literal no arquivo.
+const INVISIVEIS = /[\u0080-\u009F\u200B-\u200F\u2028-\u202E\u2060-\u2069\uFEFF]/g;
+const limparVisitante = (v, max) => limpar(String(v ?? '').replace(INVISIVEIS, ' '), max) || 'Não informado';
+
+// Lista fechada por tipo: [campo, rótulo, tamanho máximo]. Rótulo null = E-mail ou Telefone conforme o @.
+const CAMPOS_CONTATO = {
+  comercial: [['company', 'Empresa', 100], ['name', 'Nome', 90], ['contact', null, 120], ['need', 'O que deseja automatizar', 250]],
+  orcamento: [['name', 'Nome', 90], ['phone', 'Telefone', 30], ['city', 'Cidade', 90], ['service', 'Serviço', 150]],
+};
+
+/** Texto do aviso de contato: número curto, hora com segundos, campos da lista do tipo (limpos) e link. */
+function montarContato({ tipo, id, criadoEm, painel, dados } = {}) {
+  const valores = dados && typeof dados === 'object' ? dados : {};
+  const linhas = CAMPOS_CONTATO[tipo].map(([campo, rotulo, max]) => {
+    const valor = limparVisitante(valores[campo], max);
+    return `${rotulo ?? (valor.includes('@') ? 'E-mail' : 'Telefone')}: ${valor}`;
+  });
   return semSegredos([
-    `Novo pedido de contato pelo site (${tipo})`,
-    `Quando: ${quando(criadoEm)}`,
+    `Novo pedido de contato pelo site #${numeroDo(id)}`,
+    `Quando: ${quandoComSegundos(criadoEm)}`,
+    ...linhas,
     `Ver no painel: ${limpar(painel, 200)}`,
   ].join('\n'));
 }
@@ -83,10 +107,10 @@ function criarAviso(env = process.env) {
       try { await enviar(cfg.token, cfg.chat, montarMensagem(dados)); return true; }
       catch { console.error('Aviso do chamado indisponível'); return false; }
     },
-    /** Pedido de contato do site. Nunca rejeita. tipo fora da lista: não envia. Falha: uma linha de log sem detalhes. */
-    async contatoRecebido({ tipo, criadoEm, painel } = {}) {
+    /** Pedido de contato do site. Nunca rejeita. tipo fora da lista: não envia. Falha: uma linha de log sem dados. */
+    async contatoRecebido({ tipo, id, criadoEm, painel, dados } = {}) {
       if (!cfg.ativo || !TIPOS_CONTATO.has(tipo)) return false;
-      try { await enviar(cfg.token, cfg.chat, montarContato({ tipo, criadoEm, painel })); return true; }
+      try { await enviar(cfg.token, cfg.chat, montarContato({ tipo, id, criadoEm, painel, dados })); return true; }
       catch { console.error('Aviso de contato indisponível'); return false; }
     },
   };

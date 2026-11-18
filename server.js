@@ -168,14 +168,14 @@ function throttle(key, max=80, windowMs=60_000, tabela=rate) {
   tabela.set(key,value);
   return value.count<=max;
 }
-/** Aviso de pedido do site: fire-and-forget, nunca rejeita, limite próprio só na memória. Só tipo e hora. */
-function avisarContato(tipo, criadoEm) {
+/** Aviso de pedido do site: fire-and-forget, nunca rejeita, limite próprio só na memória. Dados só na mensagem, nunca no log. */
+function avisarContato(tipo, id, criadoEm, dados) {
   if (!avisoChamados.ativo) return;
   if (!throttle('aviso:contatos', LIMITE_AVISOS_CONTATO_HORA, 60*60_000, rateGlobal)) {
     if (throttle('aviso:contatos-log', 1, 60*60_000, rateGlobal)) console.error('Avisos de contato acima do limite por hora; pedidos continuam gravados');
     return;
   }
-  void avisoChamados.contatoRecebido({ tipo, criadoEm, painel: (SITE_ORIGIN||'') + PAINEL_CONTATOS });
+  void avisoChamados.contatoRecebido({ tipo, id, criadoEm, dados, painel: (SITE_ORIGIN||'') + PAINEL_CONTATOS });
 }
 function csrf(req, session) { if (!session || req.headers['x-csrf-token']!==session.csrf) throw bad(403,'Token de segurança inválido. Atualize a página.'); }
 function allow(session, roles) {
@@ -623,9 +623,9 @@ const server=http.createServer(async (req,res)=>{
       if(isQuote && !/^[+()\d\s-]{10,30}$/.test(data.phone)) throw bad(400,'Telefone inválido.');
       // Teto global por dia: contado só para pedidos válidos, para que lixo não esgote a cota.
       if(!throttle('global:contatos',LIMITE_CONTATOS_DIA,24*60*60_000,rateGlobal)) { res.setHeader('Retry-After','3600');throw bad(429,'Recebemos muitos pedidos hoje. Tente novamente amanhã.'); }
-      const tipo=isQuote?'orcamento':'comercial',criadoEm=new Date().toISOString();
-      await D.contatos.criar(tipo,{id:crypto.randomUUID(),...data,consent:true,createdAt:criadoEm});
-      avisarContato(tipo,criadoEm); // depois de gravar; não espera o Telegram e nunca leva dados do visitante
+      const tipo=isQuote?'orcamento':'comercial',criadoEm=new Date().toISOString(),id=crypto.randomUUID();
+      await D.contatos.criar(tipo,{id,...data,consent:true,createdAt:criadoEm});
+      avisarContato(tipo,id,criadoEm,data); // depois de gravar; não espera o Telegram; dados só na mensagem, nunca no log
       return json(res,201,{ok:true});
     }
 

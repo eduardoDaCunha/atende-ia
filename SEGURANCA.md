@@ -10,7 +10,7 @@ Estas proteções não garantem resistência a DDoS nem ausência de vulnerabili
 - No máximo 32 respostas em andamento; excesso recebe 503. Limites de conexões, cabeçalhos, tempo de requisição e conexão ociosa.
 - Corpos com tamanho declarado acima de 16.000 bytes são recusados antecipadamente; mantida a checagem durante a leitura. URL limitada a 2.048 caracteres.
 - Mapa de contadores limitado a 4.096 entradas; contadores ativos não são expulsos para abrir espaço a outros identificadores.
-- Aviso opcional pelo Telegram de novo pedido de contato do site: leva só o tipo (orçamento/comercial), a hora e o link do painel, nunca dados do visitante. No máximo 10 avisos por hora (na memória); acima disso o pedido continua gravado e o log registra uma linha por hora.
+- Aviso opcional pelo Telegram de novo pedido de contato do site: leva o número curto do pedido, a hora e os dados do formulário (lista fechada de campos, cada um sem caracteres de controle ou invisíveis e cortado no tamanho máximo), em texto puro sem `parse_mode`, e o link do painel. Os dados do visitante nunca vão para o log. No máximo 10 avisos por hora (na memória); acima disso o pedido continua gravado e o log registra uma linha por hora.
 - Cabeçalhos de IP encaminhado não são usados para identificar visitantes. Com Tailscale/proxy, usuários podem compartilhar a mesma cota; os limites são conservadores para este protótipo.
 
 Os contadores ficam na memória e reiniciam com o processo. Estas cotas não se aplicam ao servidor separado do webhook WhatsApp e não constituem orçamento de consumo da IA.

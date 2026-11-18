@@ -18,7 +18,7 @@ Os dois devolvem objetos **no mesmo formato** dos arquivos JSON originais, entã
 5. Sessões: memória no JSON (reiniciar desloga), tabela `sessoes` no PostgreSQL (reiniciar não desloga). Só o hash do token é guardado.
 6. Dados da empresa (`dadosEmpresa.obter` e `salvar`): `dados-empresa.json` no JSON, tabela `dados_empresa` no PostgreSQL. Sempre recebem o escopo de quem pede, para o RLS valer.
 7. Chamados de suporte técnico (`chamados.criar`, `listar` e `atualizar`): `chamados.json` no JSON, tabela `chamados` no PostgreSQL (migração 005). O atendimento abre e lê os da própria empresa; só o admin geral muda status e resposta (o RLS também barra o UPDATE). Sem DELETE.
-8. Pedidos de contato do site (`contatos.criar`): depois de gravar, o servidor pode avisar pelo Telegram sem nenhum dado pessoal (só tipo e hora); o aviso nunca impede a gravação.
+8. Pedidos de contato do site (`contatos.criar`): depois de gravar, o servidor pode avisar pelo Telegram com o número curto do pedido (8 primeiros caracteres do `id`), a hora e os dados do formulário, limpos; esses dados nunca vão para o log, e o aviso nunca impede a gravação.
 
 ## Scripts
 
