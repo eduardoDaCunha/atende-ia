@@ -38,7 +38,12 @@ const assert = require('node:assert/strict');
     assert.equal(landing.status,200,'Demonstração acessível sem login');
     assert.ok(landing.raw.includes('id="agente"'),'Chat do agente público');
     assert.equal(landing.raw.includes('href="/acesso"'),false,'Site público não anuncia login');
-    assert.equal((await call('/app.js')).status,200,'JavaScript público disponível');
+    const appPublico=await call('/app.js');
+    assert.equal(appPublico.status,200,'JavaScript público disponível');
+    // Cartão de agradecimento do formulário "Falar com a equipe".
+    assert.ok(appPublico.raw.includes('Recebemos seu pedido! Nossa equipe entrará em contato em breve.'),'Cartão de agradecimento no app.js');
+    const cssPublico=(await call('/style.css')).raw;
+    assert.ok(/\.agradecimento\s*\{/.test(cssPublico)&&/prefers-reduced-motion:\s*reduce/.test(cssPublico),'Cartão de agradecimento no CSS, com movimento reduzido');
     // Todo arquivo citado pelas páginas públicas e pelo CSS precisa ter rota em server.js.
     const publicPages=[landing.raw,(await call('/privacidade')).raw,(await call('/termos')).raw,(await call('/style.css')).raw].join('\n');
     const publicFiles=new Set([...publicPages.matchAll(/(?:src|srcset|href|url\()=?["(]?"?(\/[\w.-]+\.\w+)/g)].map(m=>m[1]));
