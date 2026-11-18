@@ -1,6 +1,6 @@
 ## Em desenvolvimento | Chamados de suporte técnico
 - Atendimento abre chamados de suporte para a administração (tabela `chamados`, migração 005), acompanha status e resposta; admin responde no painel; aviso opcional pelo Telegram (`TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`), sem a descrição; limites de 5 por usuário por hora e `ATENDE_LIMITE_CHAMADOS_DIA` (padrão 100).
-- Aviso pelo Telegram de novo pedido de contato do site (`/api/lead` e `/api/commercial-lead`): só tipo, hora e link `/atendimento#pedidos-site`, sem dados do visitante; isca e pedidos recusados não avisam; no máximo 10 avisos por hora, sem afetar a gravação.
+- Aviso pelo Telegram de novo pedido de contato do site (`/api/lead` e `/api/commercial-lead`): número curto `#CODIGO`, hora com segundos, dados do formulário (limpos de caracteres de controle e invisíveis, cortados; contato com `@` vira "E-mail", senão "Telefone") e link `/atendimento#pedidos-site`; dados do visitante nunca no log; isca e pedidos recusados não avisam; no máximo 10 avisos por hora, sem afetar a gravação.
 
 ## v0.3.8.3 | Dados permanentes no Windows
 - Cadastro persistente em %LOCALAPPDATA%\AtendeIA\data.
