@@ -58,6 +58,9 @@ const LIMITE_CONTATOS_IP_HORA = 5;
 const ROTULOS_CONTATO = {name:'nome',phone:'telefone',city:'cidade',service:'serviço',company:'empresa',contact:'contato',need:'necessidade'};
 const LIMITE_CONTATOS_DIA = Number(process.env.ATENDE_LIMITE_CONTATOS_DIA || 200);
 if (!Number.isInteger(LIMITE_CONTATOS_DIA) || LIMITE_CONTATOS_DIA < 1 || LIMITE_CONTATOS_DIA > 100_000) throw new Error('ATENDE_LIMITE_CONTATOS_DIA inválido');
+// Aviso de pedido do site pelo Telegram: no máximo 10 por hora (só na memória); o pedido é gravado sempre.
+const LIMITE_AVISOS_CONTATO_HORA = 10;
+const PAINEL_CONTATOS = '/atendimento#pedidos-site';
 // Chamados de suporte técnico: 5 por usuário por hora e teto global por dia (só na memória).
 const LIMITE_CHAMADOS_USUARIO_HORA = 5;
 const LIMITE_CHAMADOS_DIA = Number(process.env.ATENDE_LIMITE_CHAMADOS_DIA || 100);
@@ -164,6 +167,15 @@ function throttle(key, max=80, windowMs=60_000, tabela=rate) {
   const value=entry ? {...entry, count:Math.min(entry.count+1,max+1)} : {at:now,expires:now+windowMs,count:1,max};
   tabela.set(key,value);
   return value.count<=max;
+}
+/** Aviso de pedido do site: fire-and-forget, nunca rejeita, limite próprio só na memória. Só tipo e hora. */
+function avisarContato(tipo, criadoEm) {
+  if (!avisoChamados.ativo) return;
+  if (!throttle('aviso:contatos', LIMITE_AVISOS_CONTATO_HORA, 60*60_000, rateGlobal)) {
+    if (throttle('aviso:contatos-log', 1, 60*60_000, rateGlobal)) console.error('Avisos de contato acima do limite por hora; pedidos continuam gravados');
+    return;
+  }
+  void avisoChamados.contatoRecebido({ tipo, criadoEm, painel: (SITE_ORIGIN||'') + PAINEL_CONTATOS });
 }
 function csrf(req, session) { if (!session || req.headers['x-csrf-token']!==session.csrf) throw bad(403,'Token de segurança inválido. Atualize a página.'); }
 function allow(session, roles) {
@@ -611,7 +623,9 @@ const server=http.createServer(async (req,res)=>{
       if(isQuote && !/^[+()\d\s-]{10,30}$/.test(data.phone)) throw bad(400,'Telefone inválido.');
       // Teto global por dia: contado só para pedidos válidos, para que lixo não esgote a cota.
       if(!throttle('global:contatos',LIMITE_CONTATOS_DIA,24*60*60_000,rateGlobal)) { res.setHeader('Retry-After','3600');throw bad(429,'Recebemos muitos pedidos hoje. Tente novamente amanhã.'); }
-      await D.contatos.criar(isQuote?'orcamento':'comercial',{id:crypto.randomUUID(),...data,consent:true,createdAt:new Date().toISOString()});
+      const tipo=isQuote?'orcamento':'comercial',criadoEm=new Date().toISOString();
+      await D.contatos.criar(tipo,{id:crypto.randomUUID(),...data,consent:true,createdAt:criadoEm});
+      avisarContato(tipo,criadoEm); // depois de gravar; não espera o Telegram e nunca leva dados do visitante
       return json(res,201,{ok:true});
     }
 

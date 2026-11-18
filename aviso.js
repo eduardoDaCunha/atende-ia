@@ -5,6 +5,8 @@
  *  linha de log, sem valores. Sem dependências: usa node:https.
  *  Texto puro (sem parse_mode, evita injeção de formatação) e SEM a descrição do chamado.
  *  Falha do Telegram nunca impede gravar o chamado: o log diz só "Aviso do chamado indisponível".
+ *  Também avisa pedido de contato do site (contatoRecebido): só tipo, hora e link do painel,
+ *  NUNCA dados do visitante. Falha: "Aviso de contato indisponível".
  */
 'use strict';
 const https = require('node:https');
@@ -30,6 +32,17 @@ function montarMensagem({ id, empresa, nome, usuario, criadoEm, assunto, painel 
     `Aberto por: ${limpar(nome, 80) || 'Não informado'} (${limpar(usuario, 30)})`,
     `Quando: ${quando(criadoEm)}`,
     `Assunto: ${limpar(assunto, 100)}`,
+    `Ver no painel: ${limpar(painel, 200)}`,
+  ].join('\n'));
+}
+
+const TIPOS_CONTATO = new Set(['orcamento', 'comercial']);
+
+/** Texto do aviso de contato. Só tipo, hora e link: nunca recebe dados do visitante. */
+function montarContato({ tipo, criadoEm, painel }) {
+  return semSegredos([
+    `Novo pedido de contato pelo site (${tipo})`,
+    `Quando: ${quando(criadoEm)}`,
     `Ver no painel: ${limpar(painel, 200)}`,
   ].join('\n'));
 }
@@ -70,7 +83,13 @@ function criarAviso(env = process.env) {
       try { await enviar(cfg.token, cfg.chat, montarMensagem(dados)); return true; }
       catch { console.error('Aviso do chamado indisponível'); return false; }
     },
+    /** Pedido de contato do site. Nunca rejeita. tipo fora da lista: não envia. Falha: uma linha de log sem detalhes. */
+    async contatoRecebido({ tipo, criadoEm, painel } = {}) {
+      if (!cfg.ativo || !TIPOS_CONTATO.has(tipo)) return false;
+      try { await enviar(cfg.token, cfg.chat, montarContato({ tipo, criadoEm, painel })); return true; }
+      catch { console.error('Aviso de contato indisponível'); return false; }
+    },
   };
 }
 
-module.exports = { criarAviso, montarMensagem, configuracao, numeroDo };
+module.exports = { criarAviso, montarMensagem, montarContato, configuracao, numeroDo };
