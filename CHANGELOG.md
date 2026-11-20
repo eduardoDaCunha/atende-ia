@@ -1,4 +1,5 @@
 ## Em desenvolvimento | Chamados de suporte técnico
+- Hook do Claude Code (`.claude/hooks/bloqueia-segredos.js`, registrado em `.claude/settings.json` com `permissions.deny`): agentes não leem segredos, chaves e dados reais, não usam ssh/rclone/tailscale nem git que altera, não despejam variáveis nem mexem no próprio hook; falha fechada; teste `tests/hook-segredos.js`.
 - Atendimento abre chamados de suporte para a administração (tabela `chamados`, migração 005), acompanha status e resposta; admin responde no painel; aviso opcional pelo Telegram (`TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`), sem a descrição; limites de 5 por usuário por hora e `ATENDE_LIMITE_CHAMADOS_DIA` (padrão 100).
 - Aviso pelo Telegram de novo pedido de contato do site (`/api/lead` e `/api/commercial-lead`): número curto `#CODIGO`, hora com segundos, dados do formulário (limpos de caracteres de controle e invisíveis, cortados; contato com `@` vira "E-mail", senão "Telefone") e link `/atendimento#pedidos-site`; dados do visitante nunca no log; isca e pedidos recusados não avisam; no máximo 10 avisos por hora, sem afetar a gravação.
 

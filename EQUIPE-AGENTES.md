@@ -3,7 +3,7 @@
 Complementa o CLAUDE.md (que traz como executar, testar e a estrutura do projeto). Vale para TODOS os agentes. Leia antes de qualquer tarefa. O dono do projeto é o Eduardo; todo texto para o usuário em português do Brasil.
 
 ## Regras gerais (sem exceção)
-1. NUNCA ler, imprimir, copiar ou alterar `.env`, `config-local.bat`, chaves SSH, tokens, senhas ou qualquer segredo. Se uma tarefa exigir um segredo, pare e avise.
+1. NUNCA ler, imprimir, copiar ou alterar `.env`, `config-local.bat`, chaves SSH, tokens, senhas ou qualquer segredo. Se uma tarefa exigir um segredo, pare e avise. O hook `.claude/hooks/bloqueia-segredos.js` recusa essas ações (e ssh, git que altera, despejo de variáveis); se ele bloquear, não tente contornar: pare e avise o Eduardo.
 2. NUNCA acessar o servidor de produção (ssh, docker no servidor) nem fazer deploy. Subir para produção é decisão do Eduardo.
 3. Trabalhe só na SUA área (veja "Departamentos"). Se precisar mexer em arquivo de outra área, avise antes e espere.
 4. Todos os agentes trabalham na MESMA pasta e na branch da tarefa atual, criada pelo Eduardo (por exemplo `cnpj-no-site`; confira com `git branch --show-current`, sem alterar nada). NÃO troque de branch, NÃO faça commit, push, merge, reset ou checkout: quem faz o git é o Eduardo. Nunca mexa na `main`; se a branch atual for a `main`, pare e avise.
