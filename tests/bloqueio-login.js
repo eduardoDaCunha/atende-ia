@@ -23,7 +23,8 @@ const wait = ms => new Promise(r => setTimeout(r, ms));
   const dominio = 'atende.exemplo-ficticio.com.br', origem = 'https://' + dominio;
   const env = { ...process.env, ATENDE_DATA_DIR: data, PORT: String(port), GEMINI_API_KEY: '', TAILSCALE_HOST: '', SITE_ORIGIN: origem, ATENDE_PROXY_CONFIAVEL: '1' };
   for (const k of Object.keys(env)) if (k.startsWith('WHATSAPP_')) delete env[k];
-  const server = spawn(process.execPath, ['server.js'], { cwd: base, stdio: 'ignore', env });
+  const server = spawn(process.execPath, ['server.js'], { cwd: base, stdio: ['ignore', 'ignore', 'pipe'], env });
+  let erros = ''; server.stderr.on('data', c => { erros += c; });
   // IP do visitante pelo X-Forwarded-For (como atrás do Caddy), para simular vários IPs.
   const pedido = (rota, { metodo = 'GET', ip = '203.0.113.10', corpo, cookie } = {}) => new Promise((ok, falha) => {
     const texto = corpo ? JSON.stringify(corpo) : '';
@@ -64,11 +65,35 @@ const wait = ms => new Promise(r => setTimeout(r, ms));
     assert.equal(recusados.length, 2, 'Os excedentes são recusados');
     assert.ok(recusados.every(r => r.retryAfter === '60'), 'Recusa com Retry-After');
     assert.ok(Math.max(...recusados.map(r => r.ms)) < Math.min(...esperaram.map(r => r.ms)), 'Recusa vem na hora, antes dos atrasados');
+    // 7) Password spraying: um IP errando a senha de usuários diferentes. Até 8 usuários, 401;
+    //    a falha no 9º aciona o bloqueio do IP e o 10º pedido já é 429. Os 42 terminam em 429.
+    const spray = [];
+    for (let i = 0; i < 42; i++) spray.push((await login('203.0.113.51', 'Senha-Comum-2026', 'spray' + i)).status);
+    assert.deepEqual(spray.slice(0, 9), Array(9).fill(401), 'Até a 9ª falha de usuário diferente: 401');
+    assert.deepEqual(spray.slice(9), Array(33).fill(429), 'Depois disso: 429 em tudo');
+    assert.equal((await login('203.0.113.52', 'errada', 'spray0')).status, 401, 'Outro IP não herda o bloqueio');
+    assert.equal((await login('203.0.113.53', senha)).status, 200, 'Dono entra de IP não bloqueado');
+    assert.equal((await login('203.0.113.51', senha)).status, 429, 'IP bloqueado não entra nem com a senha certa');
+    assert.equal((await pedido('/api/status', { ip: '203.0.113.51' })).status, 200, 'Bloqueio vale só para o login');
+    // 8) Login certo não gasta a cota do IP: 12 logins certos seguidos (limite de 10 por minuto) entram.
+    for (let i = 0; i < 12; i++) assert.equal((await login('203.0.113.54', senha)).status, 200, 'Login certo ' + (i + 1));
+    // 9) Atacante que alterna logins certos com erros em usuários diferentes: os acertos devolvem a vaga
+    //    do limite por IP, mas não zeram a contagem de usuários distintos. O bloqueio vem no mesmo ponto.
+    for (let i = 0; i < 9; i++) {
+      assert.equal((await login('203.0.113.55', senha)).status, 200, 'Acerto intercalado ' + (i + 1));
+      assert.equal((await login('203.0.113.55', 'errada', 'alterna' + i)).status, 401, 'Erro em usuário diferente ' + (i + 1));
+    }
+    assert.equal((await login('203.0.113.55', senha)).status, 429, 'Bloqueado depois do 9º usuário diferente, mesmo alternando acertos');
+    // 10) Alerta (sem bloqueio) com mais de 100 falhas no sistema em 15 min; sem IP nem usuário no log.
+    for (let i = 1; i <= 101; i++) assert.equal((await login(`2001:db8:${i.toString(16)}::1`, 'errada', 'global' + i)).status, 401, 'Falhas espalhadas não bloqueiam');
+    await wait(200);
+    assert.equal(erros.split('mais de 100 falhas').length - 1, 1, 'Uma linha de alerta por janela');
+    assert.ok(!/203\.0\.113|2001:db8|spray|global\d|alterna|admin\.teste/.test(erros), 'Log sem IP nem usuário');
     // 6) Unidade: o desbloqueio pelo admin limpa todos os IPs do usuário.
     const auth = require(path.join(base, 'auth.js'));
     auth.fail('u.teste', 'a'); for (let i = 0; i < 5; i++) auth.fail('u.teste', 'b');
     assert.equal(auth.locked('u.teste', 'a'), false); assert.equal(auth.locked('u.teste', 'b'), true);
     assert.equal(auth.unblock('u.teste'), true); assert.equal(auth.locked('u.teste', 'b'), false); assert.equal(auth.loginDelay('u.teste'), 0);
-    console.log('OK: bloqueio por usuário + IP, dono entra de outro IP, atraso progressivo sem bloqueio total, sem IP no painel.');
+    console.log('OK: bloqueio por usuário + IP, dono entra de outro IP, atraso progressivo sem bloqueio total, sem IP no painel, password spraying bloqueia o IP (mesmo alternando acertos), login certo não gasta a cota, alerta de falhas no sistema sem IP no log.');
   } finally { server.kill(); await wait(200); await fs.rm(base, { recursive: true, force: true }).catch(() => {}); }
 })().catch(err => { console.error('FALHA NO TESTE:', err); process.exitCode = 1; });

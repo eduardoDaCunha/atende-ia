@@ -161,6 +161,37 @@ function contaBloqueada(chave) {
 }
 function falhaConta(chave) { contar(errosDaConta, chave); }
 function liberarConta(chave) { errosDaConta.delete(chave); }
+// Password spraying: um endereço que erra a senha de mais de 8 usuários diferentes em 15 min fica
+// 15 min sem login (só o login; o resto do site segue). Login certo NÃO zera esta contagem.
+// Só na memória: o IP nunca vai para disco, log ou painel; o desbloqueio do admin não o alcança.
+const LIMITE_USUARIOS_POR_IP = 8, MAX_IPS_SPRAY = 4096;
+const usuariosPorIp = new Map();
+function ipBloqueadoNoLogin(ip) {
+  const chave = String(ip || ''), v = usuariosPorIp.get(chave);
+  if (!v) return false;
+  if (Date.now() > v.until) { usuariosPorIp.delete(chave); return false; }
+  return v.bloqueado;
+}
+// Registra a falha de senha; devolve true só na falha que acionou o bloqueio (para registrar uma vez).
+function falhaDeSenha(ip, username) {
+  const chave = String(ip || ''), now = Date.now();
+  let v = usuariosPorIp.get(chave);
+  if (v && now > v.until) { usuariosPorIp.delete(chave); v = null; }
+  if (!v) {
+    // Tabela cheia: saem as vencidas; depois as não bloqueadas mais antigas; por fim a mais antiga.
+    if (usuariosPorIp.size >= MAX_IPS_SPRAY) for (const [k,x] of usuariosPorIp) if (now > x.until) usuariosPorIp.delete(k);
+    if (usuariosPorIp.size >= MAX_IPS_SPRAY) for (const [k,x] of usuariosPorIp) if (!x.bloqueado) { usuariosPorIp.delete(k); break; }
+    if (usuariosPorIp.size >= MAX_IPS_SPRAY) usuariosPorIp.delete(usuariosPorIp.keys().next().value);
+    v = { usuarios: new Set(), until: now + JANELA_BLOQUEIO, bloqueado: false };
+    usuariosPorIp.set(chave, v);
+  }
+  if (v.bloqueado) return false;
+  v.usuarios.add(String(username || '').toLowerCase());
+  if (v.usuarios.size <= LIMITE_USUARIOS_POR_IP) return false;
+  // No máximo 9 nomes por endereço ficam na memória; bloqueado, a lista é descartada.
+  Object.assign(v, { usuarios: new Set(), until: now + JANELA_BLOQUEIO, bloqueado: true });
+  return true;
+}
 // Apenas o administrador pode consultar/desbloquear pelo servidor; never export passwords or tokens.
 // Visão por conta (soma dos IPs bloqueados), sem expor IP.
 function lockInfo(username) {
@@ -186,4 +217,4 @@ function unblock(username) {
   errosDaConta.delete('mfa:' + user);
   return existed || mfaTravado;
 }
-module.exports = { MFA_ADMIN, mfaRequired, newMfaSecret, verifyTotp, totp, otpauthUrl, hashPassword, verifyPassword, verifyPasswordAsync, HASH_FICTICIO, passwordValid, generatePassword, safeUser, newSession, clearSession, revokeUser, session, locked, fail, loginDelay, forget, contaBloqueada, falhaConta, liberarConta, lockInfo, blockedAccounts, unblock, ROLES, USERFILE };
+module.exports = { MFA_ADMIN, mfaRequired, newMfaSecret, verifyTotp, totp, otpauthUrl, hashPassword, verifyPassword, verifyPasswordAsync, HASH_FICTICIO, passwordValid, generatePassword, safeUser, newSession, clearSession, revokeUser, session, locked, fail, loginDelay, forget, contaBloqueada, falhaConta, liberarConta, ipBloqueadoNoLogin, falhaDeSenha, lockInfo, blockedAccounts, unblock, ROLES, USERFILE };

@@ -57,7 +57,14 @@ async function tetoDaIA() {
   try {
     let ok = false; for (let i = 0; i < 80 && !ok; i++) { await wait(100); try { ok = (await fetch(origin + '/api/auth/me')).ok; } catch {} }
     assert.ok(ok, 'Servidor iniciou');
+    // Duas sessões do mesmo admin (dois navegadores): B fica guardada; A segue no teste.
     let r = await entrar();
+    const cookieB = cookie; cookie = ''; csrf = '';
+    const comCookie = async (c, rota) => { const salvo = cookie; cookie = c; try { return (await pedir(rota)).status; } finally { cookie = salvo; } };
+    r = await entrar();
+    const cookieA = cookie, csrfA = csrf;
+    assert.notEqual(cookieA, cookieB, 'Duas sessões diferentes');
+    { const salvo = cookie; cookie = cookieB; const me = await (await pedir('/api/auth/me')).json(); cookie = salvo; assert.ok(me.user, 'Antes da ativação, a sessão B vale'); }
     assert.equal(r.status, 200); assert.equal(r.b.user.mfaRequired, true, 'Admin sem MFA precisa ativar');
     assert.equal((await pedir('/api/admin/users')).status, 403, 'Sem MFA, a administração fica bloqueada');
     assert.equal((await pedir('/admin')).status, 302, 'Página do admin redireciona para o acesso');
@@ -65,8 +72,18 @@ async function tetoDaIA() {
     const segredo = ini.segredo.replace(/\s/g, '');
     assert.match(ini.url, /^otpauth:\/\/totp\/Atende\.IA/);
     assert.equal((await pedir('/api/auth/mfa/ativar', 'POST', { codigo: '000000' === auth.totp(segredo, Math.floor(Date.now() / 30000)) ? '111111' : '000000' })).status, 400, 'Código errado não ativa');
-    assert.equal((await pedir('/api/auth/mfa/ativar', 'POST', { codigo: auth.totp(segredo, Math.floor(Date.now() / 30000)) })).status, 200);
-    assert.equal((await pedir('/api/admin/users')).status, 200, 'Com MFA ativa, a administração libera');
+    const ativou = await pedir('/api/auth/mfa/ativar', 'POST', { codigo: auth.totp(segredo, Math.floor(Date.now() / 30000)) });
+    assert.equal(ativou.status, 200);
+    // Ativar o MFA derruba todas as sessões e abre uma nova (cookie e CSRF novos).
+    const novo = await ativou.json();
+    assert.ok(novo.csrf && novo.csrf !== csrfA, 'CSRF novo na resposta');
+    assert.notEqual(cookie, cookieA, 'Cookie novo na resposta');
+    assert.equal(await comCookie(cookieB, '/api/admin/users'), 401, 'A outra sessão deixa de valer');
+    assert.equal(await comCookie(cookieA, '/api/admin/users'), 401, 'O cookie antigo desta sessão deixa de valer');
+    assert.equal((await pedir('/api/auth/mfa/iniciar', 'POST', {})).status, 403, 'CSRF antigo recusado');
+    csrf = novo.csrf;
+    assert.equal((await pedir('/api/auth/mfa/iniciar', 'POST', {})).status, 409, 'CSRF novo aceito (MFA já ativa)');
+    assert.equal((await pedir('/api/admin/users')).status, 200, 'Com MFA ativa, a sessão nova entra na administração');
     const lista = await (await pedir('/api/admin/users')).json();
     assert.equal(lista.items[0].mfaEnabled, true, 'MFA gravada como ativa');
     assert.ok(!JSON.stringify(lista).includes(segredo), 'O segredo nunca sai na API');

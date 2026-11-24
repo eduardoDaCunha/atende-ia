@@ -28,8 +28,8 @@ const root=path.resolve(__dirname,'..');
     for(let i=0;i<80;i++){try{if((await get('/api/status','192.0.2.250'))===200){pronto=true;break;}}catch{}await new Promise(r=>setTimeout(r,75));}
     assert.ok(pronto,'Servidor de teste iniciou');
 
-    // IPv6: endereços do mesmo /64 dividem o limite de login (40 em 15 min); outro /64 não é afetado.
-    for(let i=1;i<=40;i++)assert.equal(await login(`2001:db8:1:2::${i.toString(16)}`),400);
+    // IPv6: endereços do mesmo /64 dividem o limite de login (10 por minuto); outro /64 não é afetado.
+    for(let i=1;i<=10;i++)assert.equal(await login(`2001:db8:1:2::${i.toString(16)}`),400);
     assert.equal(await login('2001:db8:1:2:ffff:ffff:ffff:ffff'),429,'Mesmo /64 conta junto');
     assert.equal(await login('2001:0db8:0001:0002:0:0:0:abcd'),429,'Mesmo /64 escrito por extenso');
     assert.equal(await login('2001:db8:1:3::1'),400,'Outro /64 tem a própria cota');
