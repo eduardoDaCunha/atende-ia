@@ -47,6 +47,13 @@ Desenvolvimento constrói → Qualidade testa → Segurança revisa → Eduardo 
 - Só um agente edita por vez (o `server.js` é compartilhado). NÃO acessa produção e NÃO faz git.
 - Tarefa atual: M1, separar as credenciais de dono do banco do container do app (`.env.app` para o app; serviço `ferramentas` com o `.env` completo só para migrar, manutenção, importar e criar/recuperar admin). Ajustar `docker-compose.yml`, `backup.sh`, `PASSO-A-PASSO.md` e `dados/LEIA-ME.md`.
 
+### Cibersegurança: agente "Albert Sem Eisten"
+- Definição: `.claude/agents/albert-sem-eisten.md`.
+- Papel: auditar o código, revisar as mudanças de cada branch antes do commit e acompanhar os itens abertos do `SEGURANCA.md`. RELATA em `..\relatorios\seguranca-AAAA-MM-DD-<tema>.md` e não edita nenhum outro arquivo.
+- Fluxo: Albert relata → Eduardo aprova → "Ideia" (servidor) ou o dono da área corrige → Albert confere a correção.
+- Testes ativos só em `127.0.0.1` ou nas cópias temporárias dos testes, com dados fictícios. Nada contra serviços externos reais e nada de carga pesada.
+- Não substitui o profissional humano de segurança.
+
 ## Departamentos futuros (sem agente)
 - Infra: Docker, backup, monitoramento, servidor. Só o Eduardo supervisiona.
 - Produto e Conteúdo: textos do site, planos, materiais de venda.
