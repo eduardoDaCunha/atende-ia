@@ -40,18 +40,20 @@ async function tetoDaIA() {
   await fs.cp(path.join(root, 'site'), path.join(base, 'site'), { recursive: true });
   await fs.mkdir(data);
   const senha = 'Senha-Ficticia-2026!';
-  await fs.writeFile(path.join(data, 'usuarios.json'), JSON.stringify([{ id: crypto.randomUUID(), username: 'admin.teste', name: 'Admin', role: 'admin', companyId: null, active: true, mustChangePassword: false, createdAt: new Date().toISOString(), ...auth.hashPassword(senha) }]));
+  await fs.writeFile(path.join(data, 'usuarios.json'), JSON.stringify([{ id: crypto.randomUUID(), username: 'admin.teste', name: 'Admin', role: 'admin', companyId: null, active: true, mustChangePassword: false, createdAt: new Date().toISOString(), ...auth.hashPassword(senha) },
+    { id: crypto.randomUUID(), username: 'atend.teste', name: 'Atendente', role: 'atendimento', companyId: null, active: true, mustChangePassword: false, createdAt: new Date().toISOString(), ...auth.hashPassword(senha) }]));
   const port = 39000 + Math.floor(Math.random() * 900), origin = `http://127.0.0.1:${port}`;
-  const env = { ...process.env, ATENDE_DATA_DIR: data, PORT: String(port), GEMINI_API_KEY: '', TAILSCALE_HOST: '', ATENDE_MFA_ADMIN: '1' };
+  const env = { ...process.env, ATENDE_DATA_DIR: data, PORT: String(port), GEMINI_API_KEY: '', TAILSCALE_HOST: '', ATENDE_MFA_ADMIN: '1', ATENDE_PROXY_CONFIAVEL: '1' };
   for (const k of Object.keys(env)) if (k.startsWith('WHATSAPP_')) delete env[k];
   const server = spawn(process.execPath, ['server.js'], { cwd: base, stdio: 'ignore', env });
   let cookie = '', csrf = '';
-  const pedir = async (rota, metodo = 'GET', corpo) => {
-    const r = await fetch(origin + rota, { method: metodo, redirect: 'manual', headers: { Cookie: cookie, Origin: origin, 'X-CSRF-Token': csrf, 'Content-Type': 'application/json' }, body: corpo && JSON.stringify(corpo) });
+  // ip: simula outro visitante atrás do proxy (ATENDE_PROXY_CONFIAVEL=1); endereços de documentação.
+  const pedir = async (rota, metodo = 'GET', corpo, ip) => {
+    const r = await fetch(origin + rota, { method: metodo, redirect: 'manual', headers: { Cookie: cookie, Origin: origin, 'X-CSRF-Token': csrf, 'Content-Type': 'application/json', ...(ip ? { 'X-Forwarded-For': ip } : {}) }, body: corpo && JSON.stringify(corpo) });
     const sc = r.headers.get('set-cookie'); if (sc) cookie = sc.split(';')[0];
     return r;
   };
-  const entrar = async codigo => { const r = await pedir('/api/auth/login', 'POST', { username: 'admin.teste', password: senha, ...(codigo !== undefined ? { codigo } : {}) }); const b = await r.json(); if (b.csrf) csrf = b.csrf; return { status: r.status, b }; };
+  const entrar = async (codigo, ip) => { const r = await pedir('/api/auth/login', 'POST', { username: 'admin.teste', password: senha, ...(codigo !== undefined ? { codigo } : {}) }, ip); const b = await r.json(); if (b.csrf) csrf = b.csrf; return { status: r.status, b }; };
   try {
     let ok = false; for (let i = 0; i < 80 && !ok; i++) { await wait(100); try { ok = (await fetch(origin + '/api/auth/me')).ok; } catch {} }
     assert.ok(ok, 'Servidor iniciou');
@@ -80,6 +82,28 @@ async function tetoDaIA() {
     assert.equal(r.b.user.mfaRequired, false);
     const reuso = await entrar(auth.totp(segredo, Math.floor(Date.now() / 30000) + 1));
     assert.equal(reuso.status, 401, 'O mesmo código não serve duas vezes');
-    console.log('OK: verificação em duas etapas (obrigatória para admin, ativação, login com código, sem reuso, segredo protegido) e teto diário da IA.');
+    // Troca de senha (sessão do login acima): senha atual errada tem limite por conta e derruba a sessão.
+    for (let i = 1; i <= 4; i++) assert.equal((await pedir('/api/auth/change-password', 'POST', { currentPassword: 'errada-' + i, newPassword: 'Outra-Senha-Ficticia-2026!' })).status, 401, 'Senha atual errada: 401');
+    assert.equal((await pedir('/api/auth/change-password', 'POST', { currentPassword: 'errada-5', newPassword: 'Outra-Senha-Ficticia-2026!' })).status, 429, '5ª senha atual errada: 429');
+    assert.equal((await (await pedir('/api/auth/me')).json()).user, null, 'Depois do limite, a sessão foi encerrada');
+    // Código do MFA: limite por conta mesmo trocando de IP. O reuso acima já contou 1 erro.
+    const errado = () => { const n = Math.floor(Date.now() / 30000), validos = [-1, 0, 1].map(d => auth.totp(segredo, n + d)); return ['111111', '222222', '333333', '444444'].find(c => !validos.includes(c)); };
+    for (let i = 1; i <= 4; i++) assert.equal((await entrar(errado(), `198.51.100.${i}`)).status, 401, 'Código errado de outro IP: 401');
+    r = await entrar(errado(), '198.51.100.9');
+    assert.equal(r.status, 429, 'Com 5 códigos errados na conta, um IP novo também é barrado');
+    assert.equal(auth.contaBloqueada('mfa:admin.teste'), false, 'O contador vive no processo do servidor, não no teste');
+    // Troca de senha em paralelo: a senha certa chega enquanto os erros travam a conta e não pode passar.
+    cookie = ''; csrf = '';
+    const loginAtend = async () => { const resp = await pedir('/api/auth/login', 'POST', { username: 'atend.teste', password: senha }); const b = await resp.json(); if (b.csrf) csrf = b.csrf; return resp.status; };
+    assert.equal(await loginAtend(), 200, 'Atendente entra');
+    const nova = 'Nova-Senha-Ficticia-2026!';
+    const lote = Array.from({ length: 12 }, (_, i) => pedir('/api/auth/change-password', 'POST', { currentPassword: 'errada-p' + i, newPassword: nova }));
+    await wait(20);
+    const certa = await pedir('/api/auth/change-password', 'POST', { currentPassword: senha, newPassword: nova });
+    await Promise.all(lote);
+    assert.notEqual(certa.status, 200, 'Senha certa no meio do lote não troca a senha depois da trava');
+    cookie = ''; csrf = '';
+    assert.equal(await loginAtend(), 200, 'A senha original continua valendo');
+    console.log('OK: verificação em duas etapas (obrigatória para admin, ativação, login com código, sem reuso, limite de códigos por conta, segredo protegido), limite na troca de senha e teto diário da IA.');
   } finally { server.kill(); await wait(200); await fs.rm(base, { recursive: true, force: true }).catch(() => {}); }
 })().catch(err => { console.error('FALHA NO TESTE:', err); process.exitCode = 1; });

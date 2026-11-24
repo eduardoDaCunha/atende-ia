@@ -568,15 +568,23 @@ const server=http.createServer(async (req,res)=>{
         throw bad(401,'Usuário ou senha inválidos.');
       }
       if(user.mfaEnabled) {
-        const codigo=str(input.codigo,10);
+        const codigo=str(input.codigo,10),chaveMfa='mfa:'+String(user.username).toLowerCase();
+        // Limite por conta (não por IP): quem tem a senha não testa códigos espalhando IPs.
+        if(auth.contaBloqueada(chaveMfa)) {
+          securityAlerts.record('login_limit');
+          await logLoginAttempt(username,'bloqueado','Verificação em duas etapas bloqueada por códigos incorretos');
+          throw bad(429,'Muitos códigos incorretos. Aguarde 15 minutos ou peça o desbloqueio ao administrador.');
+        }
         // Senha certa, falta o código: o front mostra o campo. Código errado conta como tentativa falha.
         if(!codigo) return json(res,401,{error:'Digite o código de 6 dígitos do seu aplicativo autenticador.',mfa:true});
         if(!auth.verifyTotp(user.mfaSecret,codigo,user.id)) {
-          auth.fail(username,ipLogin);
+          auth.fail(username,ipLogin);auth.falhaConta(chaveMfa);
+          const travou=auth.contaBloqueada(chaveMfa);
           await logLoginAttempt(username,'falha','Código de verificação em duas etapas incorreto');
-          await audit('login_mfa_falhou',username,'Código incorreto');
+          await audit(travou?'mfa_bloqueado':'login_mfa_falhou',username,travou?'Limite de 5 códigos incorretos atingido':'Código incorreto');
           return json(res,401,{error:'Código incorreto ou expirado. Use o código atual do aplicativo.',mfa:true});
         }
+        auth.liberarConta(chaveMfa);
       }
       auth.forget(username,ipLogin);await auth.clearSession(req,res);
       const csrfToken=await auth.newSession(res,user);
@@ -650,7 +658,30 @@ const server=http.createServer(async (req,res)=>{
       return json(res,200,{ok:true,user:auth.safeUser({...atual,mfaEnabled:true})});
     }
     if(pathname==='/api/auth/change-password') {
-      if(typeof input.currentPassword!=='string' || !auth.verifyPassword(input.currentPassword,s.user)) throw bad(401,'Senha atual incorreta.');
+      if(typeof input.currentPassword!=='string') throw bad(401,'Senha atual incorreta.');
+      // 5 senhas atuais erradas em 15 min: encerra todas as sessões (pode ser uma sessão roubada).
+      const chaveSenha='senha:'+s.user.id;
+      if(auth.contaBloqueada(chaveSenha)) throw bad(429,'Muitas tentativas. Aguarde 15 minutos.');
+      // scrypt assíncrono e com fila limitada: a troca de senha não trava o servidor.
+      const senhaAtualCerta=await auth.verifyPasswordAsync(input.currentPassword,s.user).catch(err=>{
+        if(err.code!=='fila_scrypt') throw err;
+        securityAlerts.record('overload');
+        res.setHeader('Retry-After','5');throw bad(503,'Servidor ocupado. Tente novamente em instantes.');
+      });
+      // De novo depois do scrypt: requisições em paralelo passaram juntas pela checagem acima.
+      if(auth.contaBloqueada(chaveSenha)) throw bad(429,'Muitas tentativas. Aguarde 15 minutos.');
+      if(!senhaAtualCerta) {
+        auth.falhaConta(chaveSenha);
+        if(auth.contaBloqueada(chaveSenha)) {
+          securityAlerts.record('login_limit');
+          await auth.revokeUser(s.user.id);await auth.clearSession(req,res);
+          await audit('senha_atual_bloqueio',s.user.username,'Limite de 5 senhas atuais incorretas; sessões encerradas');
+          throw bad(429,'Muitas tentativas incorretas. Por segurança, sua sessão foi encerrada.');
+        }
+        await audit('senha_atual_incorreta',s.user.username,'Senha atual incorreta na troca de senha');
+        throw bad(401,'Senha atual incorreta.');
+      }
+      auth.liberarConta(chaveSenha);
       if(!auth.passwordValid(input.newPassword)) throw bad(400,'A nova senha deve ter 12 a 128 caracteres.');
       if(input.newPassword===input.currentPassword) throw bad(400,'Use uma senha diferente.');
       await D.usuarios.atualizarLista(users=>{ const u=users.find(x=>x.id===s.user.id);Object.assign(u,auth.hashPassword(input.newPassword),{mustChangePassword:false}); });
@@ -830,7 +861,7 @@ const server=http.createServer(async (req,res)=>{
         if(action==='role') { if(u.role==='admin'||!['cliente','atendimento'].includes(input.role))throw bad(400,'Somente atendimento e cliente podem ser alternados.');u.role=input.role; }
         if(action==='reset') Object.assign(u,auth.hashPassword(pw),{mustChangePassword:true});
         return auth.safeUser(u);
-      });await auth.revokeUser(targetId);if(action==='reset')auth.unblock(target.username);await audit('usuario_'+action,admin.username,target.username);
+      });await auth.revokeUser(targetId);if(action==='reset'){auth.unblock(target.username);auth.liberarConta('senha:'+targetId);}await audit('usuario_'+action,admin.username,target.username);
       return json(res,200,{user:target,...(pw?{temporaryPassword:pw}:{})});
     }
     const membershipMatch=pathname.match(/^\/api\/admin\/users\/([a-f0-9-]{36})\/company$/);

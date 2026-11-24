@@ -148,6 +148,19 @@ function loginDelay(username) {
 }
 // Acerto: limpa só o IP de quem acertou. Os bloqueios de outros IPs (o atacante) continuam.
 function forget(username, ip) { failures.delete(failureKey(username, ip)); }
+// Limite por conta, independente do IP, para etapas que só chegam depois de algo já provado
+// (código do MFA com a senha certa; senha atual com a sessão aberta). 5 erros em 15 min travam
+// só aquela etapa da conta. Chaves: 'mfa:<usuário>' e 'senha:<id>'. Só na memória.
+const LIMITE_CONTA = 5;
+const errosDaConta = new Map();
+function contaBloqueada(chave) {
+  const v = errosDaConta.get(chave);
+  if (!v) return false;
+  if (Date.now() > v.until) { errosDaConta.delete(chave); return false; }
+  return v.count >= LIMITE_CONTA;
+}
+function falhaConta(chave) { contar(errosDaConta, chave); }
+function liberarConta(chave) { errosDaConta.delete(chave); }
 // Apenas o administrador pode consultar/desbloquear pelo servidor; never export passwords or tokens.
 // Visão por conta (soma dos IPs bloqueados), sem expor IP.
 function lockInfo(username) {
@@ -169,6 +182,8 @@ function unblock(username) {
   const user = String(username || '').toLowerCase(), existed = Boolean(lockInfo(user));
   for (const key of [...failures.keys()]) if (userOf(key) === user) failures.delete(key);
   errosDoUsuario.delete(user);
-  return existed;
+  const mfaTravado = contaBloqueada('mfa:' + user);
+  errosDaConta.delete('mfa:' + user);
+  return existed || mfaTravado;
 }
-module.exports = { MFA_ADMIN, mfaRequired, newMfaSecret, verifyTotp, totp, otpauthUrl, hashPassword, verifyPassword, verifyPasswordAsync, HASH_FICTICIO, passwordValid, generatePassword, safeUser, newSession, clearSession, revokeUser, session, locked, fail, loginDelay, forget, lockInfo, blockedAccounts, unblock, ROLES, USERFILE };
+module.exports = { MFA_ADMIN, mfaRequired, newMfaSecret, verifyTotp, totp, otpauthUrl, hashPassword, verifyPassword, verifyPasswordAsync, HASH_FICTICIO, passwordValid, generatePassword, safeUser, newSession, clearSession, revokeUser, session, locked, fail, loginDelay, forget, contaBloqueada, falhaConta, liberarConta, lockInfo, blockedAccounts, unblock, ROLES, USERFILE };
