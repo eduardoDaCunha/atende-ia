@@ -26,7 +26,7 @@ function installPasswordToggles(){
     const update=visible=>{
       input.type=visible?'text':'password';
       toggle.setAttribute('aria-pressed',String(visible));
-      toggle.setAttribute('aria-label',`${visible?'Ocultar':'Mostrar'} ${input.name==='newPassword'?'nova senha':input.name==='currentPassword'?'senha atual':'senha'}`);
+      toggle.setAttribute('aria-label',`${visible?'Ocultar':'Mostrar'} ${input.name==='newPassword'?'nova senha':input.name==='currentPassword'||input.name==='senhaAtual'?'senha atual':'senha'}`);
       toggle.setAttribute('title',visible?'Ocultar senha':'Mostrar senha');
       words.textContent=visible?'Ocultar':'Mostrar';
       iconPath.setAttribute('d',visible
@@ -99,8 +99,12 @@ async function startMfaSetup(){
   if(form.dataset.ready)return;form.dataset.ready='1';
   form.addEventListener('submit',async e=>{
     e.preventDefault();const btn=form.querySelector('button[type="submit"]');btn.disabled=true;
-    try{const r=await api('/api/auth/mfa/ativar','POST',fieldData(form));location.replace(linkFor(r.user.role));}
-    catch(err){feedback('#notice',err.message);}finally{btn.disabled=false;}
+    try{const r=await api('/api/auth/mfa/ativar','POST',fieldData(form));hidePasswords();location.replace(linkFor(r.user.role));}
+    catch(err){
+      hidePasswords();form.reset();
+      // 429 e sessão encerrada: texto do servidor (varia conforme o que travou). Outro 401: senha atual errada.
+      feedback('#notice',err.status===401&&err.message!=='Sessão encerrada. Entre novamente.'?'Senha atual incorreta.':err.message);
+    }finally{btn.disabled=false;}
   });
   $('#mfa-back').addEventListener('click',async()=>{try{await api('/api/auth/logout','POST',{});}finally{session=null;location.replace('/acesso');}});
 }

@@ -1,10 +1,10 @@
-/** Atende.IA v0.3.8.3 — demonstração LOCAL com autenticação e permissões reais no servidor.
+/** Atende.IA (versão no package.json) — demonstração LOCAL com autenticação e permissões reais no servidor.
  *  Node.js 22+. Não expor na internet: HTTPS, MFA, banco transacional,
  *  backups protegidos e revisão de segurança ainda são necessários.
  */
 'use strict';
 const http = require('node:http');
-const VERSAO = '0.4.0';
+const { VERSAO } = require('./diagnostico'); // lida do package.json
 const fs = require('node:fs/promises');
 const path = require('node:path');
 const crypto = require('node:crypto');
@@ -42,6 +42,8 @@ const SITE_ORIGIN = (()=>{
   if(u.protocol!=='https:' || u.pathname!=='/' || u.search || u.hash || u.username || u.password) throw new Error('SITE_ORIGIN deve ser uma origem HTTPS sem caminho.');
   return u.origin;
 })();
+// Validade do /.well-known/security.txt (data fixa, 24/11/2027 à 0h de Brasília): renovar antes disso.
+const SECURITY_TXT_EXPIRA = '2027-11-24T03:00:00.000Z';
 const rate = new Map();
 // Cotas globais em tabela própria: nunca são descartadas quando a tabela por IP enche.
 const rateGlobal = new Map();
@@ -53,6 +55,14 @@ const MAX_ACTIVE_REQUESTS = 32;
 // Logins em atraso progressivo seguram uma vaga de MAX_ACTIVE_REQUESTS: no máximo 4 ao mesmo tempo.
 const MAX_LOGINS_ATRASADOS = 4;
 let loginsAtrasados = 0;
+// Limites do login por visitante (o login certo não gasta) e patamar do alerta de falhas no sistema inteiro.
+const LOGIN_IP_MINUTO = 10, LOGIN_IP_15MIN = 20, LOGIN_FALHAS_ALERTA = 100;
+// Respostas da IA por visitante em 24 h, contadas à parte no site e na demonstração (só na memória).
+// Acima disso, resposta pronta: um único IP não esgota sozinho o teto diário do site.
+const LIMITE_IA_IP_DIA = Number(process.env.ATENDE_IA_LIMITE_IP_DIA || 20);
+if (!Number.isInteger(LIMITE_IA_IP_DIA) || LIMITE_IA_IP_DIA < 1 || LIMITE_IA_IP_DIA > 10_000) throw new Error('ATENDE_IA_LIMITE_IP_DIA inválido');
+// Tabela própria: os contadores de 24 h não disputam espaço com os contadores por minuto.
+const rateIA = new Map();
 // Pedidos de contato do site: 5 por IP por hora e teto global por dia (só na memória, sem IP em disco).
 const LIMITE_CONTATOS_IP_HORA = 5;
 const ROTULOS_CONTATO = {name:'nome',phone:'telefone',city:'cidade',service:'serviço',company:'empresa',contact:'contato',need:'necessidade'};
@@ -167,6 +177,37 @@ function throttle(key, max=80, windowMs=60_000, tabela=rate) {
   const value=entry ? {...entry, count:Math.min(entry.count+1,max+1)} : {at:now,expires:now+windowMs,count:1,max};
   tabela.set(key,value);
   return value.count<=max;
+}
+// Entrada dos chats públicos (/api/chat e /api/chat-demo): mensagem de até 1.000 caracteres (maior é
+// recusada) e, do histórico, só os 8 últimos itens e só turnos do visitante, cada um cortado em 600.
+// Turnos do assistente vindos do navegador são descartados: o cliente não inventa respostas da IA.
+function entradaDoChat(input) {
+  if(typeof input.message!=='string' || input.message.length>1000) throw bad(400,'Envie uma mensagem de até 1.000 caracteres.');
+  const msg=str(input.message,1000);
+  if(!msg) throw bad(400,'Digite uma mensagem.');
+  const history=(Array.isArray(input.history)?input.history.slice(-8):[])
+    .filter(h=>h&&h.role==='user'&&typeof h.text==='string')
+    .map(h=>({role:'user',text:str(h.text,600)})).filter(h=>h.text);
+  return {msg,history};
+}
+// Devolve uma vaga de um contador ainda válido (nunca abaixo de zero).
+function devolver(key, tabela=rate) {
+  const entry=tabela.get(key);
+  if(entry && Date.now()<entry.expires && entry.count>0) tabela.set(key,{...entry,count:entry.count-1});
+}
+// Quem acertou a senha não gasta a cota de login do endereço (equipe inteira atrás do mesmo IP).
+// A contagem de usuários distintos com falha (auth.falhaDeSenha) não é devolvida.
+function devolverVagaLogin(ip) { devolver(`${ip}:login-min`);devolver(`${ip}:login`); }
+// Falha de senha: detecta password spraying por endereço e alerta (sem bloquear) com muitas falhas no total.
+async function registrarFalhaDeSenha(ip, username) {
+  if(auth.falhaDeSenha(ip,username)) {
+    securityAlerts.record('login_limit');
+    await audit('login_bloqueio_ip','(sistema)','Falhas de senha em vários usuários a partir do mesmo endereço; login desse endereço bloqueado por 15 minutos');
+  }
+  if(!throttle('global:login-falhas',LOGIN_FALHAS_ALERTA,15*60_000,rateGlobal) && throttle('global:login-falhas-alerta',1,15*60_000,rateGlobal)) {
+    securityAlerts.record('login_limit');
+    console.error(`Login: mais de ${LOGIN_FALHAS_ALERTA} falhas no sistema em 15 minutos (alerta; nada foi bloqueado).`);
+  }
 }
 /** Aviso de pedido do site: fire-and-forget, nunca rejeita, limite próprio só na memória. Dados só na mensagem, nunca no log. */
 function avisarContato(tipo, id, criadoEm, dados) {
@@ -350,9 +391,13 @@ const server=http.createServer(async (req,res)=>{
       res.setHeader('Connection','close');
       throw bad(429,'Muitas solicitações. Aguarde antes de tentar novamente.');
     }
-    if(cat==='login' && !throttle(`${peer}:login`,40,15*60_000)) {
-      securityAlerts.record('login_limit');
-      res.setHeader('Retry-After','900');throw bad(429,'Muitas tentativas de acesso.');
+    // Login: 10 por minuto e 20 a cada 15 min por visitante. O login certo devolve a vaga (devolverVagaLogin).
+    if(cat==='login') {
+      const porMinuto=throttle(`${peer}:login-min`,LOGIN_IP_MINUTO);
+      if(!porMinuto || !throttle(`${peer}:login`,LOGIN_IP_15MIN,15*60_000)) {
+        securityAlerts.record('login_limit');
+        res.setHeader('Retry-After',porMinuto?'900':'60');throw bad(429,'Muitas tentativas de acesso.');
+      }
     }
     if(!throttle(`global:${cat}`,COTA_GLOBAL[cat],60_000,rateGlobal)) {
       securityAlerts.record('rate_limit');
@@ -380,9 +425,18 @@ const server=http.createServer(async (req,res)=>{
     if ((req.method==='GET'||req.method==='HEAD') && pathname==='/robots.txt') {
       // Local: não indexar protótipo. Produção: indexar apenas conteúdo público.
       const content=SITE_ORIGIN
-        ? 'User-agent: *\nAllow: /\nDisallow: /api/\nDisallow: /admin\nDisallow: /atendimento\nDisallow: /cliente\nDisallow: /acesso\nSitemap: '+SITE_ORIGIN+'/sitemap.xml\n'
+        // As telas internas não são listadas: já saem com noindex (meta e X-Robots-Tag), e um Disallow
+        // impediria o robô de ver esse noindex.
+        ? 'User-agent: *\nAllow: /\nDisallow: /api/\nSitemap: '+SITE_ORIGIN+'/sitemap.xml\n'
         : 'User-agent: *\nDisallow: /\n';
       res.writeHead(200,{'Content-Type':'text/plain; charset=utf-8','Cache-Control':'public, max-age=3600'});
+      return res.end(req.method==='HEAD'?'':content);
+    }
+    // RFC 9116. Mesmas checagens de limite e de Host das outras rotas (feitas acima). Renovar o Expires antes de vencer.
+    if ((req.method==='GET'||req.method==='HEAD') && pathname==='/.well-known/security.txt') {
+      const content='Contact: mailto:atendeia32@gmail.com\nExpires: '+SECURITY_TXT_EXPIRA+'\nPreferred-Languages: pt-BR, en\n'
+        +(SITE_ORIGIN?'Canonical: '+SITE_ORIGIN+'/.well-known/security.txt\n':'');
+      res.writeHead(200,{'Content-Type':'text/plain; charset=utf-8','Cache-Control':'public, max-age=86400'});
       return res.end(req.method==='HEAD'?'':content);
     }
     if ((req.method==='GET'||req.method==='HEAD') && pathname==='/sitemap.xml' && SITE_ORIGIN) {
@@ -419,7 +473,8 @@ const server=http.createServer(async (req,res)=>{
       res.writeHead(200,headers);
       return res.end(req.method==='HEAD'?'':buffer);
     }
-    if (req.method==='GET' && pathname==='/api/status') return json(res,200,{ai:AI_ENABLED,local:!SITE_ORIGIN,version:VERSAO});
+    // Em produção, sem a versão (não ajuda visitante e ajuda quem procura falha conhecida); local, o diagnóstico compara.
+    if (req.method==='GET' && pathname==='/api/status') return json(res,200,SITE_ORIGIN?{ai:AI_ENABLED,local:false}:{ai:AI_ENABLED,local:true,version:VERSAO});
     if (req.method==='GET' && pathname==='/api/company') return json(res,200,await configAgente(null));
     if (req.method==='GET' && pathname==='/api/auth/me') return json(res,200,{user:s?auth.safeUser(s.user):null,csrf:s?.csrf||null});
     if (req.method==='GET' && pathname==='/api/my-company') {
@@ -523,7 +578,7 @@ const server=http.createServer(async (req,res)=>{
       if (pathname==='/api/admin/health') {
         allow(s,['admin']);const users=await D.usuarios.listar(),total=(await D.solicitacoes.contar(null)).total;
         const saude=await D.saude();
-        return json(res,200,{mode:SITE_ORIGIN?'Publicado em '+SITE_ORIGIN:'LOCAL — não publicar',users:users.length,requests:total,sessions:MOTOR==='json'?'somente na memória':'no banco de dados',database:saude.descricao,ai:AI_ENABLED,iaHoje:(u=>`${u.total} de ${u.limiteDia} chamadas (site: ${u.site} de ${u.limiteSiteDia}; demonstração: ${u.demo} de ${u.limiteDemoDia})`)(usoDaIA()),verificacaoDuasEtapas:auth.MFA_ADMIN?'obrigatória para administradores':'opcional (ATENDE_MFA_ADMIN=1 para exigir)'});
+        return json(res,200,{version:VERSAO,mode:SITE_ORIGIN?'Publicado em '+SITE_ORIGIN:'LOCAL — não publicar',users:users.length,requests:total,sessions:MOTOR==='json'?'somente na memória':'no banco de dados',database:saude.descricao,ai:AI_ENABLED,iaHoje:(u=>`${u.total} de ${u.limiteDia} chamadas (site: ${u.site} de ${u.limiteSiteDia}; demonstração: ${u.demo} de ${u.limiteDemoDia})`)(usoDaIA()),verificacaoDuasEtapas:auth.MFA_ADMIN?'obrigatória para administradores':'opcional (ATENDE_MFA_ADMIN=1 para exigir)'});
       }
     }
     if (req.method!=='POST' && req.method!=='PUT') throw bad(404,'Rota não encontrada.');
@@ -536,6 +591,12 @@ const server=http.createServer(async (req,res)=>{
       if (!username || typeof password!=='string') throw bad(400,'Informe usuário e senha.');
       // Bloqueio por usuário + IP (quem acerta a senha em outro IP entra) e atraso progressivo por usuário.
       const ipLogin=visitante(req);
+      // Endereço que errou a senha de muitos usuários diferentes: sem login por 15 min, nem com a senha certa.
+      // Não grava tentativa nem auditoria a cada pedido barrado (o acionamento já foi auditado).
+      if (auth.ipBloqueadoNoLogin(ipLogin)) {
+        securityAlerts.record('login_limit');
+        res.setHeader('Retry-After','900');throw bad(429,'Muitas tentativas de acesso. Tente novamente mais tarde.');
+      }
       if (auth.locked(username,ipLogin)) {
         securityAlerts.record('login_limit');
         await logLoginAttempt(username,'bloqueado','Conta temporariamente bloqueada por tentativas incorretas');
@@ -562,23 +623,32 @@ const server=http.createServer(async (req,res)=>{
       });
       if(!user || !senhaCerta) {
         auth.fail(username,ipLogin);
+        await registrarFalhaDeSenha(ipLogin,username);
         const justLocked=auth.locked(username,ipLogin);
         await logLoginAttempt(username,'falha',justLocked?'Limite de 5 tentativas incorretas atingido':'Usuário inexistente, inativo ou senha incorreta');
         await audit(justLocked?'login_bloqueio_acionado':'login_falhou',username,justLocked?'Conta temporariamente bloqueada':'Credenciais inválidas');
         throw bad(401,'Usuário ou senha inválidos.');
       }
       if(user.mfaEnabled) {
-        const codigo=str(input.codigo,10);
+        const codigo=str(input.codigo,10),chaveMfa='mfa:'+String(user.username).toLowerCase();
+        // Limite por conta (não por IP): quem tem a senha não testa códigos espalhando IPs.
+        if(auth.contaBloqueada(chaveMfa)) {
+          securityAlerts.record('login_limit');
+          await logLoginAttempt(username,'bloqueado','Verificação em duas etapas bloqueada por códigos incorretos');
+          throw bad(429,'Muitos códigos incorretos. Aguarde 15 minutos ou peça o desbloqueio ao administrador.');
+        }
         // Senha certa, falta o código: o front mostra o campo. Código errado conta como tentativa falha.
-        if(!codigo) return json(res,401,{error:'Digite o código de 6 dígitos do seu aplicativo autenticador.',mfa:true});
+        if(!codigo) { devolverVagaLogin(ipLogin);return json(res,401,{error:'Digite o código de 6 dígitos do seu aplicativo autenticador.',mfa:true}); }
         if(!auth.verifyTotp(user.mfaSecret,codigo,user.id)) {
-          auth.fail(username,ipLogin);
+          auth.fail(username,ipLogin);auth.falhaConta(chaveMfa);
+          const travou=auth.contaBloqueada(chaveMfa);
           await logLoginAttempt(username,'falha','Código de verificação em duas etapas incorreto');
-          await audit('login_mfa_falhou',username,'Código incorreto');
+          await audit(travou?'mfa_bloqueado':'login_mfa_falhou',username,travou?'Limite de 5 códigos incorretos atingido':'Código incorreto');
           return json(res,401,{error:'Código incorreto ou expirado. Use o código atual do aplicativo.',mfa:true});
         }
+        auth.liberarConta(chaveMfa);
       }
-      auth.forget(username,ipLogin);await auth.clearSession(req,res);
+      auth.forget(username,ipLogin);devolverVagaLogin(ipLogin);await auth.clearSession(req,res);
       const csrfToken=await auth.newSession(res,user);
       await logLoginAttempt(user.username,'sucesso','Autenticação realizada');
       await audit('login',user.username);
@@ -586,10 +656,10 @@ const server=http.createServer(async (req,res)=>{
     }
     if(pathname==='/api/chat') {
       if (!throttle(`${visitante(req)}:chat`,30)) throw bad(429,'Limite de mensagens.');
-      const msg=str(input.message,1000);
-      if(!msg) throw bad(400,'Digite uma mensagem.');
-      const history=Array.isArray(input.history)?input.history.filter(h=>h&&['user','assistant'].includes(h.role)&&typeof h.text==='string').slice(-8):[];
+      const {msg,history}=entradaDoChat(input);
       if(!AI_ENABLED) return json(res,200,{answer:siteAnswer(msg),ai:false});
+      // Cota do visitante esgotada: resposta pronta, nunca erro.
+      if(!throttle(`${visitante(req)}:ia-site`,LIMITE_IA_IP_DIA,24*60*60_000,rateIA)) return json(res,200,{answer:siteAnswer(msg),ai:false});
       // Se o modelo falhar, a base própria do site responde: o visitante não vê erro.
       try { return json(res,200,{answer:await aiAnswer(msg,history,await configAgente(null)),ai:true}); }
       catch { return json(res,200,{answer:siteAnswer(msg),ai:false}); }
@@ -598,13 +668,9 @@ const server=http.createServer(async (req,res)=>{
     // conferidos acima. Não grava nada e não loga o conteúdo; teto diário próprio (ATENDE_IA_LIMITE_DEMO_DIA).
     if(pathname==='/api/chat-demo') {
       if (!throttle(`${visitante(req)}:chat-demo`,20)) { res.setHeader('Retry-After','60');throw bad(429,'Limite de mensagens. Aguarde um minuto.'); }
-      if(typeof input.message!=='string' || input.message.length>1000) throw bad(400,'Envie uma mensagem de até 1.000 caracteres.');
-      const msg=str(input.message,1000);
-      if(!msg) throw bad(400,'Digite uma mensagem.');
-      const history=(Array.isArray(input.history)?input.history.slice(-8):[])
-        .filter(h=>h&&['user','assistant'].includes(h.role)&&typeof h.text==='string')
-        .map(h=>({role:h.role,text:str(h.text,600)}));
+      const {msg,history}=entradaDoChat(input);
       if(!AI_ENABLED) return json(res,200,{answer:demonstracaoAnswer(msg),ai:false});
+      if(!throttle(`${visitante(req)}:ia-demo`,LIMITE_IA_IP_DIA,24*60*60_000,rateIA)) return json(res,200,{answer:demonstracaoAnswer(msg),ai:false});
       // Teto atingido, 15 s sem resposta ou falha do modelo: resposta pronta, sem detalhe interno.
       try { return json(res,200,{answer:await aiAnswer(msg,history,null,'demo'),ai:true}); }
       catch { return json(res,200,{answer:demonstracaoAnswer(msg),ai:false}); }
@@ -644,13 +710,74 @@ const server=http.createServer(async (req,res)=>{
     if(pathname==='/api/auth/mfa/ativar') {
       const atual=await D.usuarios.obter(s.user.id);
       if(!atual?.mfaPending) throw bad(400,'Comece a configuração novamente.');
-      if(!auth.verifyTotp(atual.mfaPending,str(input.codigo,10),atual.id)) throw bad(400,'Código incorreto. Confira se o horário do celular está automático e use o código atual.');
+      // Senha atual primeiro (sessão roubada não ativa o MFA): mesma chave e mesmo limite da troca de senha.
+      // Nenhum erro aqui mexe no segredo pendente.
+      if(typeof input.senhaAtual!=='string') throw bad(401,'Senha atual incorreta.');
+      const chaveSenha='senha:'+s.user.id;
+      if(auth.contaBloqueada(chaveSenha)) throw bad(429,'Muitas tentativas. Aguarde 15 minutos.');
+      const senhaCerta=await auth.verifyPasswordAsync(input.senhaAtual,atual).catch(err=>{
+        if(err.code!=='fila_scrypt') throw err;
+        securityAlerts.record('overload');
+        res.setHeader('Retry-After','5');throw bad(503,'Servidor ocupado. Tente novamente em instantes.');
+      });
+      // De novo depois do scrypt: requisições em paralelo passaram juntas pela checagem acima.
+      if(auth.contaBloqueada(chaveSenha)) throw bad(429,'Muitas tentativas. Aguarde 15 minutos.');
+      if(!senhaCerta) {
+        auth.falhaConta(chaveSenha);
+        if(auth.contaBloqueada(chaveSenha)) {
+          securityAlerts.record('login_limit');
+          await auth.revokeUser(s.user.id);await auth.clearSession(req,res);
+          await audit('senha_atual_bloqueio',s.user.username,'Limite de 5 senhas atuais incorretas ao ativar a verificação em duas etapas; sessões encerradas');
+          throw bad(429,'Muitas tentativas incorretas. Por segurança, sua sessão foi encerrada.');
+        }
+        await audit('senha_atual_incorreta',s.user.username,'Senha atual incorreta ao ativar a verificação em duas etapas');
+        throw bad(401,'Senha atual incorreta.');
+      }
+      auth.liberarConta(chaveSenha);
+      // Só com a senha certa vale tentar o código. Chave própria: errar aqui não trava o login com MFA.
+      const chaveCodigo='mfa-ativar:'+String(atual.username).toLowerCase();
+      if(auth.contaBloqueada(chaveCodigo)) throw bad(429,'Muitos códigos incorretos. Aguarde 15 minutos.');
+      if(!auth.verifyTotp(atual.mfaPending,str(input.codigo,10),atual.id)) {
+        auth.falhaConta(chaveCodigo);
+        if(auth.contaBloqueada(chaveCodigo)) {
+          securityAlerts.record('login_limit');
+          await audit('mfa_ativar_bloqueado',s.user.username,'Limite de 5 códigos incorretos na ativação');
+        }
+        throw bad(400,'Código incorreto. Confira se o horário do celular está automático e use o código atual.');
+      }
+      auth.liberarConta(chaveCodigo);
       await D.usuarios.atualizarLista(users=>{ const u=users.find(x=>x.id===s.user.id); Object.assign(u,{mfaSecret:u.mfaPending,mfaPending:null,mfaEnabled:true}); });
       await audit('mfa_ativada',s.user.username);
-      return json(res,200,{ok:true,user:auth.safeUser({...atual,mfaEnabled:true})});
+      // Derruba todas as sessões do usuário (inclusive uma roubada antes da ativação) e abre uma nova.
+      await auth.revokeUser(s.user.id);
+      const csrfToken=await auth.newSession(res,{...atual,mfaEnabled:true});
+      return json(res,200,{ok:true,user:auth.safeUser({...atual,mfaEnabled:true}),csrf:csrfToken});
     }
     if(pathname==='/api/auth/change-password') {
-      if(typeof input.currentPassword!=='string' || !auth.verifyPassword(input.currentPassword,s.user)) throw bad(401,'Senha atual incorreta.');
+      if(typeof input.currentPassword!=='string') throw bad(401,'Senha atual incorreta.');
+      // 5 senhas atuais erradas em 15 min: encerra todas as sessões (pode ser uma sessão roubada).
+      const chaveSenha='senha:'+s.user.id;
+      if(auth.contaBloqueada(chaveSenha)) throw bad(429,'Muitas tentativas. Aguarde 15 minutos.');
+      // scrypt assíncrono e com fila limitada: a troca de senha não trava o servidor.
+      const senhaAtualCerta=await auth.verifyPasswordAsync(input.currentPassword,s.user).catch(err=>{
+        if(err.code!=='fila_scrypt') throw err;
+        securityAlerts.record('overload');
+        res.setHeader('Retry-After','5');throw bad(503,'Servidor ocupado. Tente novamente em instantes.');
+      });
+      // De novo depois do scrypt: requisições em paralelo passaram juntas pela checagem acima.
+      if(auth.contaBloqueada(chaveSenha)) throw bad(429,'Muitas tentativas. Aguarde 15 minutos.');
+      if(!senhaAtualCerta) {
+        auth.falhaConta(chaveSenha);
+        if(auth.contaBloqueada(chaveSenha)) {
+          securityAlerts.record('login_limit');
+          await auth.revokeUser(s.user.id);await auth.clearSession(req,res);
+          await audit('senha_atual_bloqueio',s.user.username,'Limite de 5 senhas atuais incorretas; sessões encerradas');
+          throw bad(429,'Muitas tentativas incorretas. Por segurança, sua sessão foi encerrada.');
+        }
+        await audit('senha_atual_incorreta',s.user.username,'Senha atual incorreta na troca de senha');
+        throw bad(401,'Senha atual incorreta.');
+      }
+      auth.liberarConta(chaveSenha);
       if(!auth.passwordValid(input.newPassword)) throw bad(400,'A nova senha deve ter 12 a 128 caracteres.');
       if(input.newPassword===input.currentPassword) throw bad(400,'Use uma senha diferente.');
       await D.usuarios.atualizarLista(users=>{ const u=users.find(x=>x.id===s.user.id);Object.assign(u,auth.hashPassword(input.newPassword),{mustChangePassword:false}); });
@@ -830,7 +957,7 @@ const server=http.createServer(async (req,res)=>{
         if(action==='role') { if(u.role==='admin'||!['cliente','atendimento'].includes(input.role))throw bad(400,'Somente atendimento e cliente podem ser alternados.');u.role=input.role; }
         if(action==='reset') Object.assign(u,auth.hashPassword(pw),{mustChangePassword:true});
         return auth.safeUser(u);
-      });await auth.revokeUser(targetId);if(action==='reset')auth.unblock(target.username);await audit('usuario_'+action,admin.username,target.username);
+      });await auth.revokeUser(targetId);if(action==='reset'){auth.unblock(target.username);auth.liberarConta('senha:'+targetId);}await audit('usuario_'+action,admin.username,target.username);
       return json(res,200,{user:target,...(pw?{temporaryPassword:pw}:{})});
     }
     const membershipMatch=pathname.match(/^\/api\/admin\/users\/([a-f0-9-]{36})\/company$/);

@@ -28,12 +28,12 @@ const crypto=require('node:crypto');
     assert.ok(ready,'Servidor de teste iniciou');
     assert.equal((await call('/api/status',{method:'POST',body:'x'.repeat(16001)})).status,413);
     assert.equal((await call('/'+'x'.repeat(2050))).status,414);
-    for(let i=0;i<40;i++)assert.equal((await call('/api/auth/login',{method:'POST',headers:{Origin:origin,'Content-Type':'application/json'},body:'{}'})).status,400);
+    for(let i=0;i<10;i++)assert.equal((await call('/api/auth/login',{method:'POST',headers:{Origin:origin,'Content-Type':'application/json'},body:'{}'})).status,400);
     const loginBlocked=await call('/api/auth/login',{method:'POST',headers:{Origin:origin,'Content-Type':'application/json'},body:'{}'});
     assert.equal(loginBlocked.status,429);
-    assert.equal(loginBlocked.headers.get('retry-after'),'900');
+    assert.equal(loginBlocked.headers.get('retry-after'),'60','Limite de login por minuto');
     let blocked=0;
-    for(let i=0;i<650;i++){
+    for(let i=0;i<700;i++){
       const response=await call('/api/status',{headers:{'X-Forwarded-For':`198.51.100.${i%250}`}});
       assert.ok([200,429].includes(response.status));
       if(response.status===429){blocked++;assert.equal(response.headers.get('retry-after'),'60');}

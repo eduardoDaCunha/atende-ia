@@ -48,13 +48,15 @@ async function testarServidor(){
     const usuarios=['ana.teste','bia.teste','caio.teste'].map(username=>({id:crypto.randomUUID(),username,name:username,role:'admin',companyId:null,active:true,mustChangePassword:false,createdAt:new Date().toISOString(),...hashPassword('Senha-Ficticia-2026!')}));
     await fs.writeFile(path.join(base,'data','usuarios.json'),JSON.stringify(usuarios));
     const port=37000+Math.floor(Math.random()*1000),origin=`http://127.0.0.1:${port}`;
-    const env={...process.env,PORT:String(port),ATENDE_DATA_DIR:path.join(base,'data'),GEMINI_API_KEY:''};
+    const env={...process.env,PORT:String(port),ATENDE_DATA_DIR:path.join(base,'data'),GEMINI_API_KEY:'',ATENDE_PROXY_CONFIAVEL:'1'};
+    // IP fictício diferente a cada tentativa (proxy confiável): o teste mede o tempo, não os limites por IP.
+    let ipFicticio=0;
     for(const key of Object.keys(env))if(key.startsWith('WHATSAPP_'))delete env[key];
     child=spawn(process.execPath,['server.js'],{cwd:base,env,stdio:'ignore'});
     for(let i=0;i<80;i++){try{if((await fetch(origin+'/api/status')).status===200)break;}catch{}await new Promise(r=>setTimeout(r,75));}
     async function tempo(username){
       const t=process.hrtime.bigint();
-      const r=await fetch(origin+'/api/auth/login',{method:'POST',headers:{Origin:origin,'Content-Type':'application/json'},body:JSON.stringify({username,password:'Senha-Errada-2026!'})});
+      const r=await fetch(origin+'/api/auth/login',{method:'POST',headers:{Origin:origin,'Content-Type':'application/json','X-Forwarded-For':'198.51.100.'+(++ipFicticio)},body:JSON.stringify({username,password:'Senha-Errada-2026!'})});
       await r.text();assert.equal(r.status,401);
       return Number(process.hrtime.bigint()-t)/1e6;
     }

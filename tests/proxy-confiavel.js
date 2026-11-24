@@ -29,7 +29,7 @@ const wait = ms => new Promise(r => setTimeout(r, ms));
     const texto = corpo ? JSON.stringify(corpo) : '';
     const req = http.request({ host: '127.0.0.1', port, path: rota, method: metodo, headers: { Host: host, Origin: origin, 'X-Forwarded-For': ip,
       'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(texto) } }, res => {
-      let b = ''; res.on('data', c => b += c); res.on('end', () => ok({ status: res.statusCode, ok: res.statusCode < 400, headers: { get: n => [].concat(res.headers[n.toLowerCase()] || []).join('\n') }, json: async () => JSON.parse(b) }));
+      let b = ''; res.on('data', c => b += c); res.on('end', () => ok({ status: res.statusCode, ok: res.statusCode < 400, headers: { get: n => [].concat(res.headers[n.toLowerCase()] || []).join('\n') }, json: async () => JSON.parse(b), texto: async () => b }));
     });
     req.on('error', falha); req.end(texto);
   });
@@ -37,7 +37,21 @@ const wait = ms => new Promise(r => setTimeout(r, ms));
     let ok = false; for (let i = 0; i < 80 && !ok; i++) { await wait(100); try { ok = (await pedido('/api/status')).ok; } catch {} }
     assert.ok(ok, 'Servidor aceita o domínio configurado');
     assert.equal((await pedido('/api/status', { host: 'outro-dominio.com' })).status, 403, 'Outro domínio é recusado');
-    assert.equal((await (await pedido('/api/status')).json()).local, false);
+    const status = await (await pedido('/api/status')).json();
+    assert.equal(status.local, false);
+    assert.equal('version' in status, false, 'Produção: /api/status sem versão');
+    // robots.txt: só /api/ bloqueado; telas internas fora da lista e com noindex no cabeçalho.
+    const robots = await (await pedido('/robots.txt')).texto();
+    assert.match(robots, /^Disallow: \/api\/$/m); assert.match(robots, new RegExp('^Sitemap: ' + origem + '/sitemap.xml$', 'm'));
+    for (const tela of ['/admin', '/atendimento', '/cliente', '/acesso']) assert.ok(!robots.includes(tela), 'robots.txt não lista ' + tela);
+    assert.match((await pedido('/acesso')).headers.get('x-robots-tag'), /noindex/, 'Tela de acesso com noindex');
+    // security.txt (RFC 9116): só as quatro linhas, Canonical no domínio publicado; Host estranho recusado.
+    const sec = await pedido('/.well-known/security.txt');
+    assert.equal(sec.status, 200); assert.match(sec.headers.get('content-type'), /^text\/plain/);
+    assert.equal(await sec.texto(), 'Contact: mailto:atendeia32@gmail.com\nExpires: 2027-11-24T03:00:00.000Z\nPreferred-Languages: pt-BR, en\nCanonical: ' + origem + '/.well-known/security.txt\n');
+    const secHead = await pedido('/.well-known/security.txt', { metodo: 'HEAD' });
+    assert.equal(secHead.status, 200); assert.equal(await secHead.texto(), '', 'HEAD sem corpo');
+    assert.equal((await pedido('/.well-known/security.txt', { host: 'outro-dominio.com' })).status, 403, 'security.txt respeita o Host');
     const r = await pedido('/api/auth/login', { metodo: 'POST', corpo: { username: 'admin.teste', password: senha } });
     assert.equal(r.status, 200);
     assert.match(r.headers.get('set-cookie'), /; Secure/, 'Cookie de sessão com Secure em HTTPS');

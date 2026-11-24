@@ -205,8 +205,13 @@ function usoDaIA() { return { dia: usoIA.dia || hojeBrasil(), total: usoIA.total
 // dadosEmpresa: só o canal WhatsApp usa (os outros canais ignoram).
 async function aiAnswer(message, history, c, channel='site', dadosEmpresa=null) {
   reservarIA(channel);
-  const contents=history.slice(-8).map(h=>({role:h.role==='assistant'?'model':'user',parts:[{text:str(h.text,600)}]}));
-  contents.push({role:'user',parts:[{text:message}]});
+  // Turnos seguidos do mesmo papel viram um só conteúdo com várias partes (o site manda só turnos
+  // do visitante); assim o pedido ao Gemini sempre alterna os papéis. O WhatsApp já alterna.
+  const contents=[];
+  for (const [role,text] of [...history.slice(-8).map(h=>[h.role==='assistant'?'model':'user',str(h.text,600)]),['user',message]]) {
+    const ultimo=contents[contents.length-1];
+    if (ultimo && ultimo.role===role) ultimo.parts.push({text}); else contents.push({role,parts:[{text}]});
+  }
   const controller=new AbortController(); const timer=setTimeout(()=>controller.abort(),15_000);
   try {
     const response=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(MODEL)}:generateContent`,{

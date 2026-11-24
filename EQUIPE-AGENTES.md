@@ -3,7 +3,7 @@
 Complementa o CLAUDE.md (que traz como executar, testar e a estrutura do projeto). Vale para TODOS os agentes. Leia antes de qualquer tarefa. O dono do projeto é o Eduardo; todo texto para o usuário em português do Brasil.
 
 ## Regras gerais (sem exceção)
-1. NUNCA ler, imprimir, copiar ou alterar `.env`, `config-local.bat`, chaves SSH, tokens, senhas ou qualquer segredo. Se uma tarefa exigir um segredo, pare e avise.
+1. NUNCA ler, imprimir, copiar ou alterar `.env`, `config-local.bat`, chaves SSH, tokens, senhas ou qualquer segredo. Se uma tarefa exigir um segredo, pare e avise. O hook `.claude/hooks/bloqueia-segredos.js` recusa essas ações (e ssh, git que altera, despejo de variáveis); se ele bloquear, não tente contornar: pare e avise o Eduardo.
 2. NUNCA acessar o servidor de produção (ssh, docker no servidor) nem fazer deploy. Subir para produção é decisão do Eduardo.
 3. Trabalhe só na SUA área (veja "Departamentos"). Se precisar mexer em arquivo de outra área, avise antes e espere.
 4. Todos os agentes trabalham na MESMA pasta e na branch da tarefa atual, criada pelo Eduardo (por exemplo `cnpj-no-site`; confira com `git branch --show-current`, sem alterar nada). NÃO troque de branch, NÃO faça commit, push, merge, reset ou checkout: quem faz o git é o Eduardo. Nunca mexa na `main`; se a branch atual for a `main`, pare e avise.
@@ -46,6 +46,21 @@ Desenvolvimento constrói → Qualidade testa → Segurança revisa → Eduardo 
 - Papel: corrigir, com mudanças pequenas e pontuais, o que Segurança e Qualidade relatarem. Mostra o plano em arquivo em `relatorios\` antes de editar e espera o "pode" do Eduardo.
 - Só um agente edita por vez (o `server.js` é compartilhado). NÃO acessa produção e NÃO faz git.
 - Tarefa atual: M1, separar as credenciais de dono do banco do container do app (`.env.app` para o app; serviço `ferramentas` com o `.env` completo só para migrar, manutenção, importar e criar/recuperar admin). Ajustar `docker-compose.yml`, `backup.sh`, `PASSO-A-PASSO.md` e `dados/LEIA-ME.md`.
+
+### Cibersegurança: agente "Albert Sem Eisten"
+- Definição: `.claude/agents/albert-sem-eisten.md`.
+- Papel: auditar o código, revisar as mudanças de cada branch antes do commit e acompanhar os itens abertos do `SEGURANCA.md`. RELATA em `..\relatorios\seguranca-AAAA-MM-DD-<tema>.md` e não edita nenhum outro arquivo.
+- Fluxo: Albert relata → Eduardo aprova → "Ideia" (servidor) ou o dono da área corrige → Albert confere a correção.
+- Testes ativos só em `127.0.0.1` ou nas cópias temporárias dos testes, com dados fictícios. Nada contra serviços externos reais e nada de carga pesada.
+- Não substitui o profissional humano de segurança.
+- Onde mora: a definição completa (papel, limites, o que verificar e formato do relatório) está em `.claude/agents/albert-sem-eisten.md`. Ele grava só em `..\relatorios\` (fora do repositório) e nunca edita código.
+- Ferramentas da definição: Read, Grep, Glob, Bash, PowerShell e Write (Write só para relatórios). Não faz git que altera nada e não abre segredos (o hook `bloqueia-segredos.js` também recusa). Se o hook bloquear um teste legítimo (por exemplo, uma cópia temporária com `usuarios.json` fictício), ele para e relata; o ajuste do hook é à mão pelo Eduardo.
+- Para RECRIAR a sessão dele (VS Code ou Claude Code), abra a pasta do projeto e cole o texto abaixo, trocando a última linha pela tarefa do dia:
+
+```
+Você é o agente Albert Sem Eisten, cibersegurança da Atende.IA. Leia primeiro o EQUIPE-AGENTES.md, o CLAUDE.md, o SEGURANCA.md e a sua definição em .claude/agents/albert-sem-eisten.md, e siga-a. A branch atual é a da tarefa (confira com git branch --show-current, sem alterar nada). Você AUDITA e RELATA: grave só relatórios em ..\relatorios\seguranca-AAAA-MM-DD-<tema>.md, não edite código, não faça git que altera nada, não abra .env, config-local.bat, chaves nem .ssh, não acesse produção e rode testes ativos só em 127.0.0.1 ou nas cópias temporárias dos testes, com dados fictícios. Tarefa: <descreva aqui>
+```
+- Exemplo de tarefa: "Conferir as correções dos blocos A e B da auditoria de 22/11 (M1, M2, B1, B2, B4), procurar regressões e brechas novas nos trechos que mudaram e rodar bash rodar-testes.sh."
 
 ## Departamentos futuros (sem agente)
 - Infra: Docker, backup, monitoramento, servidor. Só o Eduardo supervisiona.

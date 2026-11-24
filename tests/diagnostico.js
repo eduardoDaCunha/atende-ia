@@ -65,6 +65,10 @@ function fetchFalso(regras){
     assert.equal(r.resumo.geral,'falha');
     r=await coletarDiagnostico({env:{},fetch:fetchFalso([[/api\/status/,{status:200,corpo:{version:'9.9.9'}}]])});
     assert.equal(achar(r,'servidor.disponibilidade').estado,'aviso');
+    // Produção não mostra a versão no /api/status: campo ausente não é "outra versão".
+    r=await coletarDiagnostico({env:{},fetch:fetchFalso([[/api\/status/,{status:200,corpo:{ai:false,local:false}}]])});
+    assert.equal(achar(r,'servidor.disponibilidade').estado,'ok','Sem versão na resposta: ok');
+    assert.equal(VERSAO,require(path.join(root,'package.json')).version,'Versão vem do package.json');
 
     // 3. Tudo configurado, sem testar conexões: configurado, mas "não testada", e nada vaza.
     f=fetchFalso([[/:3999\/api\/status/,{status:200,corpo:{version:VERSAO}}],[/:3998\/webhook\/whatsapp$/,{status:403}]]);

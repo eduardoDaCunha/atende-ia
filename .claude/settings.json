@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "permissions": {
+    "deny": [
+      "Read(.env)",
+      "Read(.env.*)",
+      "Read(!.env.exemplo)",
+      "Read(!.env.example)",
+      "Read(//**/config-local.bat)",
+      "Read(//**/rclone.conf)",
+      "Read(//**/*.pem)",
+      "Read(//**/*.key)",
+      "Read(//**/*.p12)",
+      "Read(//**/*.pfx)",
+      "Read(//**/*.ppk)",
+      "Read(//**/id_rsa*)",
+      "Read(//**/id_ed25519*)",
+      "Read(//**/id_ecdsa*)",
+      "Read(//**/atende_deploy*)",
+      "Read(//**/known_hosts)",
+      "Read(//**/authorized_keys)",
+      "Read(//**/.ssh/**)",
+      "Read(//**/.aws/**)",
+      "Read(//**/.gnupg/**)",
+      "Read(//**/AtendeIA/data/**)",
+      "Read(/data/**)",
+      "Read(//**/usuarios.json)",
+      "Read(//**/solicitacoes.json)",
+      "Read(//**/sessoes*.json)",
+      "Read(//**/*.sqlite)",
+      "Read(//**/*.db)",
+      "Read(//**/*.dump)",
+      "Read(//**/*.bak)",
+      "Edit(/.claude/settings*.json)",
+      "Edit(/.claude/hooks/**)"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Read|Edit|Write|MultiEdit|NotebookEdit|Grep|Glob|Bash|PowerShell|Artifact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node",
+            "args": ["${CLAUDE_PROJECT_DIR}/.claude/hooks/bloqueia-segredos.js"],
+            "timeout": 10,
+            "onFailure": "block"
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -2,6 +2,7 @@
 .env
 .env.*
 !.env.exemplo
+!.env.example
 node_modules/
 .DS_Store
 *.log
@@ -18,6 +19,12 @@ id_ecdsa*
 *.ppk
 known_hosts
 authorized_keys
+atende_deploy*
+.ssh/
+rclone.conf
+
+# Aprovações pessoais do Claude Code (o .claude/settings.json e o .claude/hooks/ vão para o git)
+.claude/settings.local.json
 
 # Dados, backups e importações
 data-importacao-*/
@@ -28,6 +35,7 @@ solicitacoes.json
 sessoes*.json
 *.sqlite
 *.db
+*.dump
 
 # Backups do servidor
 implantacao/backups/

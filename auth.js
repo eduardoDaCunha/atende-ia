@@ -148,6 +148,50 @@ function loginDelay(username) {
 }
 // Acerto: limpa só o IP de quem acertou. Os bloqueios de outros IPs (o atacante) continuam.
 function forget(username, ip) { failures.delete(failureKey(username, ip)); }
+// Limite por conta, independente do IP, para etapas que só chegam depois de algo já provado
+// (código do MFA com a senha certa; senha atual com a sessão aberta). 5 erros em 15 min travam
+// só aquela etapa da conta. Chaves: 'mfa:<usuário>' (login), 'mfa-ativar:<usuário>' (ativação) e 'senha:<id>' (troca de senha e ativação do MFA). Só na memória.
+const LIMITE_CONTA = 5;
+const errosDaConta = new Map();
+function contaBloqueada(chave) {
+  const v = errosDaConta.get(chave);
+  if (!v) return false;
+  if (Date.now() > v.until) { errosDaConta.delete(chave); return false; }
+  return v.count >= LIMITE_CONTA;
+}
+function falhaConta(chave) { contar(errosDaConta, chave); }
+function liberarConta(chave) { errosDaConta.delete(chave); }
+// Password spraying: um endereço que erra a senha de mais de 8 usuários diferentes em 15 min fica
+// 15 min sem login (só o login; o resto do site segue). Login certo NÃO zera esta contagem.
+// Só na memória: o IP nunca vai para disco, log ou painel; o desbloqueio do admin não o alcança.
+const LIMITE_USUARIOS_POR_IP = 8, MAX_IPS_SPRAY = 4096;
+const usuariosPorIp = new Map();
+function ipBloqueadoNoLogin(ip) {
+  const chave = String(ip || ''), v = usuariosPorIp.get(chave);
+  if (!v) return false;
+  if (Date.now() > v.until) { usuariosPorIp.delete(chave); return false; }
+  return v.bloqueado;
+}
+// Registra a falha de senha; devolve true só na falha que acionou o bloqueio (para registrar uma vez).
+function falhaDeSenha(ip, username) {
+  const chave = String(ip || ''), now = Date.now();
+  let v = usuariosPorIp.get(chave);
+  if (v && now > v.until) { usuariosPorIp.delete(chave); v = null; }
+  if (!v) {
+    // Tabela cheia: saem as vencidas; depois as não bloqueadas mais antigas; por fim a mais antiga.
+    if (usuariosPorIp.size >= MAX_IPS_SPRAY) for (const [k,x] of usuariosPorIp) if (now > x.until) usuariosPorIp.delete(k);
+    if (usuariosPorIp.size >= MAX_IPS_SPRAY) for (const [k,x] of usuariosPorIp) if (!x.bloqueado) { usuariosPorIp.delete(k); break; }
+    if (usuariosPorIp.size >= MAX_IPS_SPRAY) usuariosPorIp.delete(usuariosPorIp.keys().next().value);
+    v = { usuarios: new Set(), until: now + JANELA_BLOQUEIO, bloqueado: false };
+    usuariosPorIp.set(chave, v);
+  }
+  if (v.bloqueado) return false;
+  v.usuarios.add(String(username || '').toLowerCase());
+  if (v.usuarios.size <= LIMITE_USUARIOS_POR_IP) return false;
+  // No máximo 9 nomes por endereço ficam na memória; bloqueado, a lista é descartada.
+  Object.assign(v, { usuarios: new Set(), until: now + JANELA_BLOQUEIO, bloqueado: true });
+  return true;
+}
 // Apenas o administrador pode consultar/desbloquear pelo servidor; never export passwords or tokens.
 // Visão por conta (soma dos IPs bloqueados), sem expor IP.
 function lockInfo(username) {
@@ -169,6 +213,10 @@ function unblock(username) {
   const user = String(username || '').toLowerCase(), existed = Boolean(lockInfo(user));
   for (const key of [...failures.keys()]) if (userOf(key) === user) failures.delete(key);
   errosDoUsuario.delete(user);
-  return existed;
+  const mfaTravado = contaBloqueada('mfa:' + user);
+  const ativarTravado = contaBloqueada('mfa-ativar:' + user);
+  errosDaConta.delete('mfa:' + user);
+  errosDaConta.delete('mfa-ativar:' + user);
+  return existed || mfaTravado || ativarTravado;
 }
-module.exports = { MFA_ADMIN, mfaRequired, newMfaSecret, verifyTotp, totp, otpauthUrl, hashPassword, verifyPassword, verifyPasswordAsync, HASH_FICTICIO, passwordValid, generatePassword, safeUser, newSession, clearSession, revokeUser, session, locked, fail, loginDelay, forget, lockInfo, blockedAccounts, unblock, ROLES, USERFILE };
+module.exports = { MFA_ADMIN, mfaRequired, newMfaSecret, verifyTotp, totp, otpauthUrl, hashPassword, verifyPassword, verifyPasswordAsync, HASH_FICTICIO, passwordValid, generatePassword, safeUser, newSession, clearSession, revokeUser, session, locked, fail, loginDelay, forget, contaBloqueada, falhaConta, liberarConta, ipBloqueadoNoLogin, falhaDeSenha, lockInfo, blockedAccounts, unblock, ROLES, USERFILE };
