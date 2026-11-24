@@ -41,7 +41,9 @@ async function tetoDaIA() {
   await fs.mkdir(data);
   const senha = 'Senha-Ficticia-2026!';
   await fs.writeFile(path.join(data, 'usuarios.json'), JSON.stringify([{ id: crypto.randomUUID(), username: 'admin.teste', name: 'Admin', role: 'admin', companyId: null, active: true, mustChangePassword: false, createdAt: new Date().toISOString(), ...auth.hashPassword(senha) },
-    { id: crypto.randomUUID(), username: 'atend.teste', name: 'Atendente', role: 'atendimento', companyId: null, active: true, mustChangePassword: false, createdAt: new Date().toISOString(), ...auth.hashPassword(senha) }]));
+    { id: crypto.randomUUID(), username: 'atend.teste', name: 'Atendente', role: 'atendimento', companyId: null, active: true, mustChangePassword: false, createdAt: new Date().toISOString(), ...auth.hashPassword(senha) },
+    // Admins sem MFA para os casos de bloqueio na ativação (não atrapalham o fluxo principal).
+    ...['admin.dois', 'admin.tres', 'admin.quatro'].map(username => ({ id: crypto.randomUUID(), username, name: username, role: 'admin', companyId: null, active: true, mustChangePassword: false, createdAt: new Date().toISOString(), ...auth.hashPassword(senha) }))]));
   const port = 39000 + Math.floor(Math.random() * 900), origin = `http://127.0.0.1:${port}`;
   const env = { ...process.env, ATENDE_DATA_DIR: data, PORT: String(port), GEMINI_API_KEY: '', TAILSCALE_HOST: '', ATENDE_MFA_ADMIN: '1', ATENDE_PROXY_CONFIAVEL: '1' };
   for (const k of Object.keys(env)) if (k.startsWith('WHATSAPP_')) delete env[k];
@@ -71,8 +73,16 @@ async function tetoDaIA() {
     const ini = await (await pedir('/api/auth/mfa/iniciar', 'POST', {})).json();
     const segredo = ini.segredo.replace(/\s/g, '');
     assert.match(ini.url, /^otpauth:\/\/totp\/Atende\.IA/);
-    assert.equal((await pedir('/api/auth/mfa/ativar', 'POST', { codigo: '000000' === auth.totp(segredo, Math.floor(Date.now() / 30000)) ? '111111' : '000000' })).status, 400, 'Código errado não ativa');
-    const ativou = await pedir('/api/auth/mfa/ativar', 'POST', { codigo: auth.totp(segredo, Math.floor(Date.now() / 30000)) });
+    // Ativar exige a senha atual (sessão roubada não ativa o MFA); erro de senha não mexe no segredo pendente.
+    const codigoAgora = () => auth.totp(segredo, Math.floor(Date.now() / 30000));
+    const semSenha = await pedir('/api/auth/mfa/ativar', 'POST', { codigo: codigoAgora() });
+    assert.equal(semSenha.status, 401, 'Sem senha atual: 401');
+    assert.equal((await semSenha.json()).error, 'Senha atual incorreta.');
+    assert.equal((await pedir('/api/auth/mfa/ativar', 'POST', { codigo: codigoAgora(), senhaAtual: 'errada' })).status, 401, 'Senha errada: 401');
+    assert.equal((await (await pedir('/api/auth/me')).json()).user.mfaEnabled, false, 'Sem a senha certa, o MFA não fica ativo');
+    assert.equal((await pedir('/api/auth/mfa/ativar', 'POST', { senhaAtual: senha, codigo: '000000' === codigoAgora() ? '111111' : '000000' })).status, 400, 'Código errado não ativa');
+    // Mesmo segredo pendente de antes dos erros: o código dele ainda vale.
+    const ativou = await pedir('/api/auth/mfa/ativar', 'POST', { senhaAtual: senha, codigo: codigoAgora() });
     assert.equal(ativou.status, 200);
     // Ativar o MFA derruba todas as sessões e abre uma nova (cookie e CSRF novos).
     const novo = await ativou.json();
@@ -121,6 +131,30 @@ async function tetoDaIA() {
     assert.notEqual(certa.status, 200, 'Senha certa no meio do lote não troca a senha depois da trava');
     cookie = ''; csrf = '';
     assert.equal(await loginAtend(), 200, 'A senha original continua valendo');
-    console.log('OK: verificação em duas etapas (obrigatória para admin, ativação, login com código, sem reuso, limite de códigos por conta, segredo protegido), limite na troca de senha e teto diário da IA.');
+    // Ativação do MFA com outros admins: sessão própria por chamada, sem mexer no cookie/csrf acima.
+    const sessao = async username => { const r = await fetch(origin + '/api/auth/login', { method: 'POST', headers: { Origin: origin, 'Content-Type': 'application/json' }, body: JSON.stringify({ username, password: senha }) }); const b = await r.json(); assert.equal(r.status, 200, 'Entra ' + username); return { cookie: r.headers.get('set-cookie').split(';')[0], csrf: b.csrf, mfaRequired: b.user.mfaRequired }; };
+    const com = async (sess, rota, metodo = 'GET', corpo) => { const r = await fetch(origin + rota, { method: metodo, headers: { Cookie: sess.cookie, Origin: origin, 'X-CSRF-Token': sess.csrf, 'Content-Type': 'application/json' }, body: corpo && JSON.stringify(corpo) }); let b = null; try { b = await r.json(); } catch {} return { status: r.status, b }; };
+    const segredoDe = async sess => (await com(sess, '/api/auth/mfa/iniciar', 'POST', {})).b.segredo.replace(/\s/g, '');
+    // 5 senhas erradas na ativação: 429 e todas as sessões caem; o MFA não fica ativo.
+    const d1 = await sessao('admin.dois'), d2 = await sessao('admin.dois'), sd = await segredoDe(d1);
+    for (let i = 1; i <= 4; i++) assert.equal((await com(d1, '/api/auth/mfa/ativar', 'POST', { senhaAtual: 'errada-' + i, codigo: auth.totp(sd, Math.floor(Date.now() / 30000)) })).status, 401, 'Senha errada na ativação ' + i);
+    assert.equal((await com(d1, '/api/auth/mfa/ativar', 'POST', { senhaAtual: 'errada-5', codigo: auth.totp(sd, Math.floor(Date.now() / 30000)) })).status, 429, '5ª senha errada na ativação: 429');
+    assert.equal((await com(d1, '/api/auth/me')).b.user, null, 'Sessão atual encerrada');
+    assert.equal((await com(d2, '/api/auth/me')).b.user, null, 'Outra sessão também encerrada');
+    assert.equal((await sessao('admin.dois')).mfaRequired, true, 'MFA continua desativado');
+    // Em paralelo: as senhas erradas não passam de 5 tentativas verificadas e nada é ativado.
+    const t1 = await sessao('admin.tres'), st = await segredoDe(t1);
+    const paralelo = await Promise.all(Array.from({ length: 10 }, (_, i) => com(t1, '/api/auth/mfa/ativar', 'POST', { senhaAtual: 'errada-p' + i, codigo: auth.totp(st, Math.floor(Date.now() / 30000)) })));
+    assert.ok(paralelo.every(r => r.status !== 200), 'Nenhuma ativação em paralelo');
+    assert.ok(paralelo.filter(r => r.b?.error === 'Senha atual incorreta.').length <= 4, 'No máximo 4 respostas "senha incorreta" antes da trava');
+    assert.ok(paralelo.some(r => r.status === 429), 'A trava aparece no lote');
+    assert.equal((await sessao('admin.tres')).mfaRequired, true, 'MFA continua desativado depois do lote');
+    // Senha certa e 5 códigos errados na ativação: 429, mesmo com o código certo depois.
+    const q1 = await sessao('admin.quatro'), sq = await segredoDe(q1);
+    const erradoQ = () => { const n = Math.floor(Date.now() / 30000), validos = [-1, 0, 1].map(d => auth.totp(sq, n + d)); return ['111111', '222222', '333333', '444444'].find(c => !validos.includes(c)); };
+    for (let i = 1; i <= 4; i++) assert.equal((await com(q1, '/api/auth/mfa/ativar', 'POST', { senhaAtual: senha, codigo: erradoQ() })).status, 400, 'Código errado na ativação ' + i);
+    assert.equal((await com(q1, '/api/auth/mfa/ativar', 'POST', { senhaAtual: senha, codigo: erradoQ() })).status, 400, '5º código errado: 400 e trava');
+    assert.equal((await com(q1, '/api/auth/mfa/ativar', 'POST', { senhaAtual: senha, codigo: auth.totp(sq, Math.floor(Date.now() / 30000)) })).status, 429, 'Travado: código certo também recebe 429');
+    console.log('OK: verificação em duas etapas (obrigatória para admin, ativação com senha atual e limites de senha e de código, login com código, sem reuso, limite de códigos por conta, segredo protegido), limite na troca de senha e teto diário da IA.');
   } finally { server.kill(); await wait(200); await fs.rm(base, { recursive: true, force: true }).catch(() => {}); }
 })().catch(err => { console.error('FALHA NO TESTE:', err); process.exitCode = 1; });

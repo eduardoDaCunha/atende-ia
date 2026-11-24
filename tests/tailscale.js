@@ -53,6 +53,11 @@ const assert=require('node:assert/strict');
    assert.match(landing.type,/text\/html/,'Navegação deve retornar HTML');
    assert.match(landing.body,/Atende\.IA/);
    assert.equal((await req('/acesso')).status,200,'Login acessível via Tailscale');
+   // Local (sem SITE_ORIGIN): /api/status com a versão do package.json; security.txt sem Canonical.
+   assert.equal((await req('/api/status',{accept:'application/json'})).json.version,require(path.join(dir,'package.json')).version,'Local: versão do package.json');
+   const sec=await req('/.well-known/security.txt');
+   assert.equal(sec.status,200);assert.match(sec.body,/^Contact: mailto:/);assert.ok(!sec.body.includes('Canonical:'),'Local: sem Canonical');
+   assert.match((await req('/robots.txt')).body,/^Disallow: \/$/m,'Local: robots.txt bloqueia tudo');
    assert.equal((await req('/',{host:tail+':443'})).status,200,'Host com porta HTTPS também permitido');
    assert.equal((await req('/',{host:hostLocal})).status,200,'Localhost continua funcionando');
    const unauthorized=await req('/',{host:'outro.tailnet-exemplo.ts.net'});

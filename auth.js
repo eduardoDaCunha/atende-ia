@@ -150,7 +150,7 @@ function loginDelay(username) {
 function forget(username, ip) { failures.delete(failureKey(username, ip)); }
 // Limite por conta, independente do IP, para etapas que só chegam depois de algo já provado
 // (código do MFA com a senha certa; senha atual com a sessão aberta). 5 erros em 15 min travam
-// só aquela etapa da conta. Chaves: 'mfa:<usuário>' e 'senha:<id>'. Só na memória.
+// só aquela etapa da conta. Chaves: 'mfa:<usuário>' (login), 'mfa-ativar:<usuário>' (ativação) e 'senha:<id>' (troca de senha e ativação do MFA). Só na memória.
 const LIMITE_CONTA = 5;
 const errosDaConta = new Map();
 function contaBloqueada(chave) {
@@ -214,7 +214,9 @@ function unblock(username) {
   for (const key of [...failures.keys()]) if (userOf(key) === user) failures.delete(key);
   errosDoUsuario.delete(user);
   const mfaTravado = contaBloqueada('mfa:' + user);
+  const ativarTravado = contaBloqueada('mfa-ativar:' + user);
   errosDaConta.delete('mfa:' + user);
-  return existed || mfaTravado;
+  errosDaConta.delete('mfa-ativar:' + user);
+  return existed || mfaTravado || ativarTravado;
 }
 module.exports = { MFA_ADMIN, mfaRequired, newMfaSecret, verifyTotp, totp, otpauthUrl, hashPassword, verifyPassword, verifyPasswordAsync, HASH_FICTICIO, passwordValid, generatePassword, safeUser, newSession, clearSession, revokeUser, session, locked, fail, loginDelay, forget, contaBloqueada, falhaConta, liberarConta, ipBloqueadoNoLogin, falhaDeSenha, lockInfo, blockedAccounts, unblock, ROLES, USERFILE };

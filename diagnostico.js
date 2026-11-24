@@ -19,7 +19,8 @@ const { ROOT, DATA } = require('./store');
 const whatsapp = require('./whatsapp');
 const { semSegredos } = require('./sanitizar');
 
-const VERSAO = '0.3.8.3';
+// Versão: uma fonte só, o package.json (também usada pelo server.js e pelo mcp.js).
+const VERSAO = require('./package.json').version;
 const ESQUEMA = 1;
 const LOCAL = '127.0.0.1';
 const GEMINI_BASE = 'https://generativelanguage.googleapis.com';
@@ -54,7 +55,8 @@ async function servidor(env, opcoes, fetchFn) {
       const r = await consultar(fetchFn, `http://${LOCAL}:${porta}/api/status`, { headers:{ Accept:'application/json' } });
       const corpo = await r.json().catch(() => null);
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
-      const mesma = corpo?.version === VERSAO;
+      // Em produção o /api/status não mostra a versão: campo ausente não é "outra versão".
+      const mesma = corpo?.version === undefined || corpo?.version === VERSAO;
       itens.push(item('servidor.disponibilidade','servidor','Disponibilidade',mesma ? 'ok' : 'aviso',{configurado:true,conexao:'testada_ok',
         detalhe: mesma ? `Respondendo em ${LOCAL}:${porta}.` : `Respondendo em ${LOCAL}:${porta}, mas com outra versão (${texto(String(corpo?.version||'desconhecida')).slice(0,20)}).`}));
     } catch {

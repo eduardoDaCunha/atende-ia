@@ -1,10 +1,10 @@
-/** Atende.IA v0.3.8.3 — demonstração LOCAL com autenticação e permissões reais no servidor.
+/** Atende.IA (versão no package.json) — demonstração LOCAL com autenticação e permissões reais no servidor.
  *  Node.js 22+. Não expor na internet: HTTPS, MFA, banco transacional,
  *  backups protegidos e revisão de segurança ainda são necessários.
  */
 'use strict';
 const http = require('node:http');
-const VERSAO = '0.4.0';
+const { VERSAO } = require('./diagnostico'); // lida do package.json
 const fs = require('node:fs/promises');
 const path = require('node:path');
 const crypto = require('node:crypto');
@@ -42,6 +42,8 @@ const SITE_ORIGIN = (()=>{
   if(u.protocol!=='https:' || u.pathname!=='/' || u.search || u.hash || u.username || u.password) throw new Error('SITE_ORIGIN deve ser uma origem HTTPS sem caminho.');
   return u.origin;
 })();
+// Validade do /.well-known/security.txt (data fixa, 24/11/2027 à 0h de Brasília): renovar antes disso.
+const SECURITY_TXT_EXPIRA = '2027-11-24T03:00:00.000Z';
 const rate = new Map();
 // Cotas globais em tabela própria: nunca são descartadas quando a tabela por IP enche.
 const rateGlobal = new Map();
@@ -423,9 +425,18 @@ const server=http.createServer(async (req,res)=>{
     if ((req.method==='GET'||req.method==='HEAD') && pathname==='/robots.txt') {
       // Local: não indexar protótipo. Produção: indexar apenas conteúdo público.
       const content=SITE_ORIGIN
-        ? 'User-agent: *\nAllow: /\nDisallow: /api/\nDisallow: /admin\nDisallow: /atendimento\nDisallow: /cliente\nDisallow: /acesso\nSitemap: '+SITE_ORIGIN+'/sitemap.xml\n'
+        // As telas internas não são listadas: já saem com noindex (meta e X-Robots-Tag), e um Disallow
+        // impediria o robô de ver esse noindex.
+        ? 'User-agent: *\nAllow: /\nDisallow: /api/\nSitemap: '+SITE_ORIGIN+'/sitemap.xml\n'
         : 'User-agent: *\nDisallow: /\n';
       res.writeHead(200,{'Content-Type':'text/plain; charset=utf-8','Cache-Control':'public, max-age=3600'});
+      return res.end(req.method==='HEAD'?'':content);
+    }
+    // RFC 9116. Mesmas checagens de limite e de Host das outras rotas (feitas acima). Renovar o Expires antes de vencer.
+    if ((req.method==='GET'||req.method==='HEAD') && pathname==='/.well-known/security.txt') {
+      const content='Contact: mailto:atendeia32@gmail.com\nExpires: '+SECURITY_TXT_EXPIRA+'\nPreferred-Languages: pt-BR, en\n'
+        +(SITE_ORIGIN?'Canonical: '+SITE_ORIGIN+'/.well-known/security.txt\n':'');
+      res.writeHead(200,{'Content-Type':'text/plain; charset=utf-8','Cache-Control':'public, max-age=86400'});
       return res.end(req.method==='HEAD'?'':content);
     }
     if ((req.method==='GET'||req.method==='HEAD') && pathname==='/sitemap.xml' && SITE_ORIGIN) {
@@ -462,7 +473,8 @@ const server=http.createServer(async (req,res)=>{
       res.writeHead(200,headers);
       return res.end(req.method==='HEAD'?'':buffer);
     }
-    if (req.method==='GET' && pathname==='/api/status') return json(res,200,{ai:AI_ENABLED,local:!SITE_ORIGIN,version:VERSAO});
+    // Em produção, sem a versão (não ajuda visitante e ajuda quem procura falha conhecida); local, o diagnóstico compara.
+    if (req.method==='GET' && pathname==='/api/status') return json(res,200,SITE_ORIGIN?{ai:AI_ENABLED,local:false}:{ai:AI_ENABLED,local:true,version:VERSAO});
     if (req.method==='GET' && pathname==='/api/company') return json(res,200,await configAgente(null));
     if (req.method==='GET' && pathname==='/api/auth/me') return json(res,200,{user:s?auth.safeUser(s.user):null,csrf:s?.csrf||null});
     if (req.method==='GET' && pathname==='/api/my-company') {
@@ -566,7 +578,7 @@ const server=http.createServer(async (req,res)=>{
       if (pathname==='/api/admin/health') {
         allow(s,['admin']);const users=await D.usuarios.listar(),total=(await D.solicitacoes.contar(null)).total;
         const saude=await D.saude();
-        return json(res,200,{mode:SITE_ORIGIN?'Publicado em '+SITE_ORIGIN:'LOCAL — não publicar',users:users.length,requests:total,sessions:MOTOR==='json'?'somente na memória':'no banco de dados',database:saude.descricao,ai:AI_ENABLED,iaHoje:(u=>`${u.total} de ${u.limiteDia} chamadas (site: ${u.site} de ${u.limiteSiteDia}; demonstração: ${u.demo} de ${u.limiteDemoDia})`)(usoDaIA()),verificacaoDuasEtapas:auth.MFA_ADMIN?'obrigatória para administradores':'opcional (ATENDE_MFA_ADMIN=1 para exigir)'});
+        return json(res,200,{version:VERSAO,mode:SITE_ORIGIN?'Publicado em '+SITE_ORIGIN:'LOCAL — não publicar',users:users.length,requests:total,sessions:MOTOR==='json'?'somente na memória':'no banco de dados',database:saude.descricao,ai:AI_ENABLED,iaHoje:(u=>`${u.total} de ${u.limiteDia} chamadas (site: ${u.site} de ${u.limiteSiteDia}; demonstração: ${u.demo} de ${u.limiteDemoDia})`)(usoDaIA()),verificacaoDuasEtapas:auth.MFA_ADMIN?'obrigatória para administradores':'opcional (ATENDE_MFA_ADMIN=1 para exigir)'});
       }
     }
     if (req.method!=='POST' && req.method!=='PUT') throw bad(404,'Rota não encontrada.');
@@ -698,7 +710,42 @@ const server=http.createServer(async (req,res)=>{
     if(pathname==='/api/auth/mfa/ativar') {
       const atual=await D.usuarios.obter(s.user.id);
       if(!atual?.mfaPending) throw bad(400,'Comece a configuração novamente.');
-      if(!auth.verifyTotp(atual.mfaPending,str(input.codigo,10),atual.id)) throw bad(400,'Código incorreto. Confira se o horário do celular está automático e use o código atual.');
+      // Senha atual primeiro (sessão roubada não ativa o MFA): mesma chave e mesmo limite da troca de senha.
+      // Nenhum erro aqui mexe no segredo pendente.
+      if(typeof input.senhaAtual!=='string') throw bad(401,'Senha atual incorreta.');
+      const chaveSenha='senha:'+s.user.id;
+      if(auth.contaBloqueada(chaveSenha)) throw bad(429,'Muitas tentativas. Aguarde 15 minutos.');
+      const senhaCerta=await auth.verifyPasswordAsync(input.senhaAtual,atual).catch(err=>{
+        if(err.code!=='fila_scrypt') throw err;
+        securityAlerts.record('overload');
+        res.setHeader('Retry-After','5');throw bad(503,'Servidor ocupado. Tente novamente em instantes.');
+      });
+      // De novo depois do scrypt: requisições em paralelo passaram juntas pela checagem acima.
+      if(auth.contaBloqueada(chaveSenha)) throw bad(429,'Muitas tentativas. Aguarde 15 minutos.');
+      if(!senhaCerta) {
+        auth.falhaConta(chaveSenha);
+        if(auth.contaBloqueada(chaveSenha)) {
+          securityAlerts.record('login_limit');
+          await auth.revokeUser(s.user.id);await auth.clearSession(req,res);
+          await audit('senha_atual_bloqueio',s.user.username,'Limite de 5 senhas atuais incorretas ao ativar a verificação em duas etapas; sessões encerradas');
+          throw bad(429,'Muitas tentativas incorretas. Por segurança, sua sessão foi encerrada.');
+        }
+        await audit('senha_atual_incorreta',s.user.username,'Senha atual incorreta ao ativar a verificação em duas etapas');
+        throw bad(401,'Senha atual incorreta.');
+      }
+      auth.liberarConta(chaveSenha);
+      // Só com a senha certa vale tentar o código. Chave própria: errar aqui não trava o login com MFA.
+      const chaveCodigo='mfa-ativar:'+String(atual.username).toLowerCase();
+      if(auth.contaBloqueada(chaveCodigo)) throw bad(429,'Muitos códigos incorretos. Aguarde 15 minutos.');
+      if(!auth.verifyTotp(atual.mfaPending,str(input.codigo,10),atual.id)) {
+        auth.falhaConta(chaveCodigo);
+        if(auth.contaBloqueada(chaveCodigo)) {
+          securityAlerts.record('login_limit');
+          await audit('mfa_ativar_bloqueado',s.user.username,'Limite de 5 códigos incorretos na ativação');
+        }
+        throw bad(400,'Código incorreto. Confira se o horário do celular está automático e use o código atual.');
+      }
+      auth.liberarConta(chaveCodigo);
       await D.usuarios.atualizarLista(users=>{ const u=users.find(x=>x.id===s.user.id); Object.assign(u,{mfaSecret:u.mfaPending,mfaPending:null,mfaEnabled:true}); });
       await audit('mfa_ativada',s.user.username);
       // Derruba todas as sessões do usuário (inclusive uma roubada antes da ativação) e abre uma nova.

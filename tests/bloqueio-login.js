@@ -96,4 +96,39 @@ const wait = ms => new Promise(r => setTimeout(r, ms));
     assert.equal(auth.unblock('u.teste'), true); assert.equal(auth.locked('u.teste', 'b'), false); assert.equal(auth.loginDelay('u.teste'), 0);
     console.log('OK: bloqueio por usuário + IP, dono entra de outro IP, atraso progressivo sem bloqueio total, sem IP no painel, password spraying bloqueia o IP (mesmo alternando acertos), login certo não gasta a cota, alerta de falhas no sistema sem IP no log.');
   } finally { server.kill(); await wait(200); await fs.rm(base, { recursive: true, force: true }).catch(() => {}); }
-})().catch(err => { console.error('FALHA NO TESTE:', err); process.exitCode = 1; });
+})().then(() => limiteDe15Minutos()).catch(err => { console.error('FALHA NO TESTE:', err); process.exitCode = 1; });
+
+// Limite de 20 tentativas de login em 15 min por IP (o de 10 por minuto não alcança: o relógio falso
+// do servidor de teste anda 61 s entre os dois lotes). Mesmo usuário, mesmo IP fictício.
+async function limiteDe15Minutos() {
+  const { pathToFileURL } = require('node:url');
+  const base = await fs.mkdtemp(path.join(os.tmpdir(), 'atende-login15-')), data = path.join(base, 'data');
+  await require('./arquivos-servidor').copiar(root, base);
+  await fs.mkdir(data);
+  const { hashPassword } = require(path.join(base, 'auth.js'));
+  const senha = 'Senha-Ficticia-2026!', relogio = path.join(base, 'relogio.txt');
+  await fs.writeFile(relogio, '0');
+  await fs.writeFile(path.join(data, 'usuarios.json'), JSON.stringify([{ id: crypto.randomUUID(), username: 'admin.teste', name: 'Admin', role: 'admin', companyId: null, active: true, mustChangePassword: false, createdAt: new Date().toISOString(), ...hashPassword(senha) }]));
+  const port = 39900 + Math.floor(Math.random() * 90), origin = `http://127.0.0.1:${port}`;
+  const env = { ...process.env, ATENDE_DATA_DIR: data, PORT: String(port), GEMINI_API_KEY: '', TAILSCALE_HOST: '', SITE_ORIGIN: '', ATENDE_PROXY_CONFIAVEL: '1', TESTE_RELOGIO: relogio };
+  for (const k of Object.keys(env)) if (k.startsWith('WHATSAPP_') || k.startsWith('TELEGRAM_')) delete env[k];
+  const server = spawn(process.execPath, ['--import', pathToFileURL(path.join(__dirname, 'relogio-falso.mjs')).href, 'server.js'], { cwd: base, stdio: 'ignore', env });
+  const login = async (ip, username, password) => { const r = await fetch(origin + '/api/auth/login', { method: 'POST', headers: { Origin: origin, 'Content-Type': 'application/json', 'X-Forwarded-For': ip }, body: JSON.stringify({ username, password }) }); await r.text(); return { status: r.status, retryAfter: r.headers.get('retry-after') }; };
+  try {
+    let pronto = false; for (let i = 0; i < 100 && !pronto; i++) { await wait(100); try { pronto = (await fetch(origin + '/api/status')).ok; } catch {} }
+    assert.ok(pronto, 'Servidor (relógio falso) no ar');
+    const ip = '203.0.113.71', lote = [];
+    for (let i = 0; i < 10; i++) lote.push(await login(ip, 'alvo.n4', 'errada-' + i));
+    assert.deepEqual(lote.slice(0, 5).map(r => r.status), [401, 401, 401, 401, 401], '5 erros do mesmo usuário');
+    assert.ok(lote.slice(5).every(r => r.status === 429 && r.retryAfter === null), 'Depois, bloqueio usuário + IP (sem Retry-After)');
+    await fs.writeFile(relogio, '61000'); await wait(300);
+    for (let i = 10; i < 20; i++) { const r = await login(ip, 'alvo.n4', 'errada-' + i); assert.ok(r.status === 429 && r.retryAfter === null, 'Ainda o bloqueio do usuário, contando no limite do IP'); }
+    // Mais 61 s: o limite de minuto zera de novo, e só o de 15 min (20 tentativas já feitas) segura a 21ª.
+    await fs.writeFile(relogio, '122000'); await wait(300);
+    const vigesima1 = await login(ip, 'admin.teste', senha);
+    assert.equal(vigesima1.status, 429, '21ª tentativa do IP em 15 min: 429 mesmo com a senha certa');
+    assert.equal(vigesima1.retryAfter, '900', 'É o limite de 15 min (não o de minuto nem o do usuário)');
+    assert.equal((await login('203.0.113.72', 'admin.teste', senha)).status, 200, 'Outro IP continua entrando');
+    console.log('OK: limite de 20 tentativas de login em 15 min por IP, com Retry-After de 15 min; outro IP entra.');
+  } finally { server.kill(); await wait(200); await fs.rm(base, { recursive: true, force: true }).catch(() => {}); }
+}
